@@ -136,8 +136,12 @@ try:
     # =============================================
     # TABS
     # =============================================
-    tab_overview, tab_trends, tab_kw_analysis = st.tabs([
-        "🏠 Overview", "📈 Daily Trends", "🔍 Keyword & Search Term Analysis"
+    tab_overview, tab_trends, tab_kw_analysis, tab_competitors, tab_opportunities = st.tabs([
+        "🏠 Overview",
+        "📈 Daily Trends",
+        "🔍 Keyword Analysis",
+        "🏆 Competitors",
+        "💎 Keyword Opportunities",
     ])
 
     # =============================================
@@ -146,16 +150,14 @@ try:
     with tab_overview:
 
         if not df_campaigns.empty:
-            # Campaign performance table
             st.subheader("Campaign Performance")
             display_df = df_campaigns.copy()
             display_df["CTR"] = display_df["CTR"].apply(lambda x: f"{x:.2%}")
             display_df["Avg CPC"] = display_df["Avg CPC"].apply(lambda x: f"${x:.2f}")
             display_df["Cost"] = display_df["Cost"].apply(lambda x: f"${x:,.2f}")
             display_df["Cost/Conv"] = display_df["Cost/Conv"].apply(lambda x: f"${x:.2f}" if x > 0 else "-")
-            st.dataframe(display_df, width="stretch", hide_index=True)
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-            # Charts side by side
             col_left, col_right = st.columns(2)
             with col_left:
                 st.subheader("Spend by Campaign")
@@ -166,7 +168,6 @@ try:
                 chart_clicks = df_campaigns[["Campaign", "Clicks"]].set_index("Campaign").sort_values("Clicks")
                 st.bar_chart(chart_clicks)
 
-            # Quick insights
             st.subheader("Quick Insights")
             best_ctr = df_campaigns.loc[df_campaigns["CTR"].idxmax()]
             worst_ctr = df_campaigns.loc[df_campaigns[df_campaigns["Clicks"] > 0]["CTR"].idxmin()] if (df_campaigns["Clicks"] > 0).any() else None
@@ -211,7 +212,6 @@ try:
             df_daily.index = pd.to_datetime(df_daily.index)
             df_daily = df_daily.sort_index()
 
-            # Summary row
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Avg Daily Spend", f"${df_daily['Cost'].mean():,.2f}")
             c2.metric("Avg Daily Clicks", f"{df_daily['Clicks'].mean():,.0f}")
@@ -236,7 +236,6 @@ try:
                 st.subheader("🎯 Daily Conversions")
                 st.area_chart(df_daily["Conversions"], color="#96CEB4")
 
-            # Peak day analysis
             st.subheader("Peak Days")
             peak_spend_day = df_daily["Cost"].idxmax().strftime("%A, %b %d")
             peak_clicks_day = df_daily["Clicks"].idxmax().strftime("%A, %b %d")
@@ -332,7 +331,7 @@ try:
 
         df_st = pd.DataFrame(st_data)
 
-        # --- KPI row for this section ---
+        # --- KPI row ---
         if not df_kw.empty or not df_st.empty:
             kc1, kc2, kc3, kc4 = st.columns(4)
             if not df_kw.empty:
@@ -357,7 +356,6 @@ try:
         # ---- Keyword Performance ----
         with kw_tab1:
             if not df_kw.empty:
-                # Filter by match type
                 match_types = ["All"] + sorted(df_kw["Match Type"].unique().tolist())
                 selected_match = st.selectbox("Filter by Match Type", match_types)
 
@@ -368,9 +366,8 @@ try:
                 display_kw["CPC"] = display_kw["CPC"].apply(lambda x: f"${x:.2f}")
                 display_kw["Cost"] = display_kw["Cost"].apply(lambda x: f"${x:,.2f}")
                 display_kw["CPA"] = display_kw["CPA"].apply(lambda x: f"${x:.2f}" if x > 0 else "-")
-                st.dataframe(display_kw, width="stretch", hide_index=True)
+                st.dataframe(display_kw, use_container_width=True, hide_index=True)
 
-                # Match type breakdown
                 st.subheader("Spend by Match Type")
                 match_summary = df_kw.groupby("Match Type").agg(
                     Keywords=("Keyword", "count"),
@@ -380,14 +377,13 @@ try:
                 ).reset_index()
                 match_summary["Avg CPC"] = match_summary.apply(lambda r: f"${r['Cost']/r['Clicks']:.2f}" if r["Clicks"] > 0 else "-", axis=1)
                 match_summary["Cost"] = match_summary["Cost"].apply(lambda x: f"${x:,.2f}")
-                st.dataframe(match_summary, width="stretch", hide_index=True)
+                st.dataframe(match_summary, use_container_width=True, hide_index=True)
             else:
                 st.info("No keyword data found for this date range.")
 
         # ---- Search Terms ----
         with kw_tab2:
             if not df_st.empty:
-                # Search filter
                 search_filter = st.text_input("🔍 Search for a term", placeholder="Type to filter search terms...")
                 filtered_st = df_st
                 if search_filter:
@@ -397,9 +393,8 @@ try:
                 display_st["CTR"] = display_st["CTR"].apply(lambda x: f"{x:.2%}")
                 display_st["Cost"] = display_st["Cost"].apply(lambda x: f"${x:,.2f}")
                 display_st["CPA"] = display_st["CPA"].apply(lambda x: f"${x:.2f}" if x > 0 else "-")
-                st.dataframe(display_st, width="stretch", hide_index=True)
+                st.dataframe(display_st, use_container_width=True, hide_index=True)
 
-                # Top converting search terms
                 converting = df_st[df_st["Conversions"] > 0].sort_values("Conversions", ascending=False).head(10)
                 if not converting.empty:
                     st.subheader("🏆 Top Converting Search Terms")
@@ -448,7 +443,7 @@ try:
                     display_wasted["CTR"] = display_wasted["CTR"].apply(lambda x: f"{x:.2%}")
                     display_wasted["Cost"] = display_wasted["Cost"].apply(lambda x: f"${x:,.2f}")
                     display_wasted = display_wasted.drop(columns=["CPA"])
-                    st.dataframe(display_wasted, width="stretch", hide_index=True)
+                    st.dataframe(display_wasted, use_container_width=True, hide_index=True)
                 else:
                     st.markdown('<div class="good-box">🎉 All your search terms have at least one conversion. Great job!</div>', unsafe_allow_html=True)
             else:
@@ -462,38 +457,32 @@ try:
             tips = []
 
             if not df_kw.empty:
-                # Tip: High CPC keywords
                 high_cpc = df_kw[df_kw["CPC"] > df_kw["CPC"].mean() * 1.5]
                 if not high_cpc.empty:
                     kw_list = ", ".join(high_cpc["Keyword"].head(3).tolist())
                     tips.append(("insight-box", "💰", "High CPC Keywords", f"These keywords cost significantly more than average: <strong>{kw_list}</strong>. Consider lowering bids or improving Quality Score with better ad copy and landing pages."))
 
-                # Tip: Low CTR keywords
                 low_ctr = df_kw[(df_kw["CTR"] < 0.02) & (df_kw["Impressions"] > 100)]
                 if not low_ctr.empty:
                     kw_list = ", ".join(low_ctr["Keyword"].head(3).tolist())
                     tips.append(("bad-box", "⚠️", "Low CTR Keywords", f"These keywords have CTR below 2%: <strong>{kw_list}</strong>. Your ads may not be relevant enough — try writing more specific ad copy or tightening match types."))
 
-                # Tip: Keywords with clicks but no conversions
                 no_conv = df_kw[(df_kw["Clicks"] > 5) & (df_kw["Conversions"] == 0)]
                 if not no_conv.empty:
                     wasted_amount = no_conv["Cost"].sum()
                     kw_list = ", ".join(no_conv["Keyword"].head(3).tolist())
                     tips.append(("bad-box", "🔥", "Money Burning Keywords", f"Keywords with clicks but zero conversions: <strong>{kw_list}</strong>. Total spend: <strong>${wasted_amount:,.2f}</strong>. Consider pausing these or improving landing pages."))
 
-                # Tip: Top performers
                 top_perf = df_kw[(df_kw["Conversions"] > 0)].sort_values("CPA")
                 if not top_perf.empty:
                     best = top_perf.iloc[0]
                     tips.append(("good-box", "🏆", "Best Performer", f"<strong>{best['Keyword']}</strong> has the lowest cost per conversion at <strong>${best['CPA']:.2f}</strong>. Consider increasing budget for this keyword."))
 
-                # Tip: Match type optimization
                 broad_kw = df_kw[df_kw["Match Type"] == "BROAD"]
                 if not broad_kw.empty and len(broad_kw) > len(df_kw) * 0.5:
                     tips.append(("insight-box", "🎯", "Match Type Mix", f"Over half your keywords use Broad match. Consider testing Phrase or Exact match for your top-spending keywords to improve targeting precision."))
 
             if not df_st.empty:
-                # Tip: Search term relevance
                 low_ctr_st = df_st[(df_st["CTR"] < 0.01) & (df_st["Impressions"] > 50)]
                 if not low_ctr_st.empty:
                     terms = ", ".join(low_ctr_st["Search Term"].head(3).tolist())
@@ -506,18 +495,296 @@ try:
             else:
                 st.markdown('<div class="good-box">✅ No major issues detected. Your account looks healthy!</div>', unsafe_allow_html=True)
 
+    # =============================================
+    # TAB 4: COMPETITORS (Auction Insights)
+    # =============================================
+    with tab_competitors:
+
+        st.markdown("See who you're competing against in Google Ads auctions and how you stack up.")
+        st.markdown("")
+
+        try:
+            query_auction = f"""
+                SELECT
+                    segments.domain,
+                    metrics.auction_insight_search_impression_share,
+                    metrics.auction_insight_search_overlap_rate,
+                    metrics.auction_insight_search_position_above_rate,
+                    metrics.auction_insight_search_top_of_page_rate,
+                    metrics.auction_insight_search_absolute_top_of_page_rate,
+                    metrics.auction_insight_search_outranking_share
+                FROM auction_insight
+                WHERE segments.date DURING {date_range}
+            """
+            rows_auction = fetch_data(query_auction)
+
+            auction_data = []
+            for row in rows_auction:
+                domain = row.segments.domain
+                auction_data.append({
+                    "Competitor": domain,
+                    "Impression Share": row.metrics.auction_insight_search_impression_share,
+                    "Overlap Rate": row.metrics.auction_insight_search_overlap_rate,
+                    "Position Above Rate": row.metrics.auction_insight_search_position_above_rate,
+                    "Top of Page Rate": row.metrics.auction_insight_search_top_of_page_rate,
+                    "Abs. Top of Page Rate": row.metrics.auction_insight_search_absolute_top_of_page_rate,
+                    "Outranking Share": row.metrics.auction_insight_search_outranking_share,
+                })
+
+            df_auction = pd.DataFrame(auction_data)
+
+            if not df_auction.empty:
+                # Separate your data vs competitors
+                # The first row with the highest impression share is usually you
+                df_auction = df_auction.sort_values("Impression Share", ascending=False)
+
+                st.subheader("Auction Insights Overview")
+                st.caption("How you compare to competitors in the same auctions")
+
+                # KPIs
+                your_row = df_auction.iloc[0]
+                num_competitors = len(df_auction) - 1
+
+                ac1, ac2, ac3 = st.columns(3)
+                ac1.metric("Your Impression Share", f"{your_row['Impression Share']:.1%}")
+                ac2.metric("Competitors Found", num_competitors)
+                ac3.metric("Your Top of Page Rate", f"{your_row['Top of Page Rate']:.1%}")
+
+                st.markdown("")
+
+                # Full table
+                display_auction = df_auction.copy()
+                for col in ["Impression Share", "Overlap Rate", "Position Above Rate",
+                            "Top of Page Rate", "Abs. Top of Page Rate", "Outranking Share"]:
+                    display_auction[col] = display_auction[col].apply(lambda x: f"{x:.1%}")
+                st.dataframe(display_auction, use_container_width=True, hide_index=True)
+
+                # Competitor chart
+                st.subheader("Impression Share: You vs Competitors")
+                chart_auction = df_auction[["Competitor", "Impression Share"]].set_index("Competitor").sort_values("Impression Share")
+                st.bar_chart(chart_auction)
+
+                # Top competitors analysis
+                competitors = df_auction.iloc[1:]  # Exclude yourself
+                if not competitors.empty:
+                    st.subheader("Competitor Analysis")
+
+                    top_competitor = competitors.iloc[0]
+                    st.markdown(f'<div class="bad-box">🥊 <strong>Biggest competitor:</strong> {top_competitor["Competitor"]} — they appear in {top_competitor["Impression Share"]:.1%} of auctions and outrank you {top_competitor["Position Above Rate"]:.1%} of the time.</div>', unsafe_allow_html=True)
+
+                    # Competitors who frequently appear above you
+                    above_you = competitors[competitors["Position Above Rate"] > 0.3].sort_values("Position Above Rate", ascending=False)
+                    if not above_you.empty:
+                        st.markdown("")
+                        st.markdown("**Competitors frequently ranking above you:**")
+                        for _, comp in above_you.iterrows():
+                            threat_level = "bad-box" if comp["Position Above Rate"] > 0.5 else "insight-box"
+                            st.markdown(
+                                f'<div class="{threat_level}">⬆️ <strong>{comp["Competitor"]}</strong> — '
+                                f'above you {comp["Position Above Rate"]:.1%} of the time, '
+                                f'overlap rate: {comp["Overlap Rate"]:.1%}</div>',
+                                unsafe_allow_html=True,
+                            )
+
+                    # Competitors you outrank
+                    you_outrank = competitors[competitors["Outranking Share"] < 0.3].sort_values("Outranking Share")
+                    if not you_outrank.empty:
+                        st.markdown("")
+                        st.markdown("**Competitors you're beating:**")
+                        for _, comp in you_outrank.head(5).iterrows():
+                            st.markdown(
+                                f'<div class="good-box">✅ <strong>{comp["Competitor"]}</strong> — '
+                                f'you outrank them most of the time (their outranking share: {comp["Outranking Share"]:.1%})</div>',
+                                unsafe_allow_html=True,
+                            )
+            else:
+                st.info("No auction insight data available for this date range.")
+
+        except Exception as auction_error:
+            error_msg = str(auction_error)
+            if "not found" in error_msg.lower() or "invalid" in error_msg.lower() or "unrecognized" in error_msg.lower():
+                st.warning("Auction Insights are not available for your account type or the selected date range.")
+                st.markdown("""
+                **Possible reasons:**
+                - Your campaigns may not have enough data for auction insights
+                - Auction insights require Search campaigns (not Display or Shopping)
+                - Your developer token may need Standard (not Basic) access
+
+                **To view auction insights manually:**
+                1. Go to Google Ads
+                2. Click on a campaign > Auction insights
+                """)
+            else:
+                st.error(f"Error loading auction insights: {auction_error}")
+
+    # =============================================
+    # TAB 5: KEYWORD OPPORTUNITIES
+    # =============================================
+    with tab_opportunities:
+
+        st.markdown("Discover search terms driving traffic that **aren't in your keyword list** — these are potential new keywords to add to your campaigns.")
+        st.markdown("")
+
+        # Fetch all search terms with broader limit
+        query_all_search = f"""
+            SELECT
+                search_term_view.search_term,
+                search_term_view.status,
+                campaign.name,
+                ad_group.name,
+                metrics.impressions,
+                metrics.clicks,
+                metrics.ctr,
+                metrics.cost_micros,
+                metrics.conversions
+            FROM search_term_view
+            WHERE segments.date DURING {date_range}
+                AND campaign.status != 'REMOVED'
+            ORDER BY metrics.impressions DESC
+            LIMIT 200
+        """
+        # Fetch all keywords
+        query_all_kw = f"""
+            SELECT
+                ad_group_criterion.keyword.text,
+                ad_group_criterion.keyword.match_type
+            FROM keyword_view
+            WHERE segments.date DURING {date_range}
+                AND campaign.status != 'REMOVED'
+        """
+
+        try:
+            rows_all_st = fetch_data(query_all_search)
+            rows_all_kw = fetch_data(query_all_kw)
+
+            # Build set of existing keywords (lowercase for comparison)
+            existing_keywords = set()
+            for row in rows_all_kw:
+                existing_keywords.add(row.ad_group_criterion.keyword.text.lower().strip())
+
+            # Find search terms not matching existing keywords
+            opportunities = []
+            already_targeted = []
+            for row in rows_all_st:
+                term = row.search_term_view.search_term
+                cost = row.metrics.cost_micros / 1_000_000
+                conversions = row.metrics.conversions
+                is_new = term.lower().strip() not in existing_keywords
+
+                entry = {
+                    "Search Term": term,
+                    "Campaign": row.campaign.name,
+                    "Ad Group": row.ad_group.name,
+                    "Impressions": row.metrics.impressions,
+                    "Clicks": row.metrics.clicks,
+                    "CTR": row.metrics.ctr,
+                    "Cost": cost,
+                    "Conversions": conversions,
+                    "CPA": cost / conversions if conversions > 0 else 0,
+                }
+
+                if is_new:
+                    opportunities.append(entry)
+                else:
+                    already_targeted.append(entry)
+
+            df_opps = pd.DataFrame(opportunities)
+            df_targeted = pd.DataFrame(already_targeted)
+
+            # Sub-tabs
+            opp_tab1, opp_tab2, opp_tab3 = st.tabs([
+                "🌟 High-Value Opportunities",
+                "📊 All Untargeted Terms",
+                "✅ Already Targeted",
+            ])
+
+            with opp_tab1:
+                if not df_opps.empty:
+                    # High-value = has conversions OR high clicks with decent CTR
+                    high_value = df_opps[
+                        (df_opps["Conversions"] > 0) |
+                        ((df_opps["Clicks"] >= 3) & (df_opps["CTR"] >= 0.02))
+                    ].sort_values(
+                        ["Conversions", "Clicks"], ascending=[False, False]
+                    )
+
+                    if not high_value.empty:
+                        oc1, oc2, oc3 = st.columns(3)
+                        oc1.metric("High-Value Opportunities", len(high_value))
+                        converting_opps = len(high_value[high_value["Conversions"] > 0])
+                        oc2.metric("Already Converting", converting_opps)
+                        oc3.metric("Potential Extra Clicks", f"{high_value['Clicks'].sum():,}")
+
+                        st.markdown("")
+                        st.markdown('<div class="good-box">💡 <strong>These search terms are performing well but aren\'t targeted as keywords.</strong> Adding them could give you more control over bids and ad copy.</div>', unsafe_allow_html=True)
+                        st.markdown("")
+
+                        # Converting opportunities first
+                        converting_opps_df = high_value[high_value["Conversions"] > 0]
+                        if not converting_opps_df.empty:
+                            st.subheader("🎯 Converting — Add These First!")
+                            st.caption("These search terms are already converting without being targeted. Adding them as exact match keywords gives you more control.")
+                            for _, row in converting_opps_df.iterrows():
+                                st.markdown(
+                                    f'<div class="good-box">🎯 <strong>{row["Search Term"]}</strong> — '
+                                    f'{row["Conversions"]:.0f} conversions, {row["Clicks"]} clicks, '
+                                    f'{row["CTR"]:.2%} CTR, ${row["Cost"]:,.2f} cost '
+                                    f'(in {row["Campaign"]})</div>',
+                                    unsafe_allow_html=True,
+                                )
+                            st.markdown("")
+
+                        # High-click opportunities
+                        click_opps = high_value[high_value["Conversions"] == 0]
+                        if not click_opps.empty:
+                            st.subheader("👆 High Traffic — Worth Testing")
+                            st.caption("Good click volume and CTR. Add as keywords and monitor for conversions.")
+                            display_click = click_opps.copy()
+                            display_click["CTR"] = display_click["CTR"].apply(lambda x: f"{x:.2%}")
+                            display_click["Cost"] = display_click["Cost"].apply(lambda x: f"${x:,.2f}")
+                            display_click = display_click.drop(columns=["CPA"])
+                            st.dataframe(display_click, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No high-value opportunities found. Try expanding the date range to Last 90 Days for more data.")
+                else:
+                    st.info("No untargeted search terms found.")
+
+            with opp_tab2:
+                if not df_opps.empty:
+                    st.markdown(f"Found **{len(df_opps)} search terms** that triggered your ads but aren't in your keyword list.")
+                    st.markdown("")
+
+                    # Search filter
+                    opp_filter = st.text_input("🔍 Filter opportunities", placeholder="Type to search...", key="opp_filter")
+                    filtered_opps = df_opps
+                    if opp_filter:
+                        filtered_opps = df_opps[df_opps["Search Term"].str.contains(opp_filter, case=False, na=False)]
+
+                    display_opps = filtered_opps.copy()
+                    display_opps["CTR"] = display_opps["CTR"].apply(lambda x: f"{x:.2%}")
+                    display_opps["Cost"] = display_opps["Cost"].apply(lambda x: f"${x:,.2f}")
+                    display_opps["CPA"] = display_opps["CPA"].apply(lambda x: f"${x:.2f}" if x > 0 else "-")
+                    st.dataframe(display_opps, use_container_width=True, hide_index=True)
+                else:
+                    st.info("All search terms are already targeted as keywords. Great coverage!")
+
+            with opp_tab3:
+                if not df_targeted.empty:
+                    st.markdown(f"**{len(df_targeted)} search terms** are already matched to your keywords.")
+                    st.markdown("")
+                    display_targeted = df_targeted.copy()
+                    display_targeted["CTR"] = display_targeted["CTR"].apply(lambda x: f"{x:.2%}")
+                    display_targeted["Cost"] = display_targeted["Cost"].apply(lambda x: f"${x:,.2f}")
+                    display_targeted["CPA"] = display_targeted["CPA"].apply(lambda x: f"${x:.2f}" if x > 0 else "-")
+                    st.dataframe(display_targeted, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No matched search terms found.")
+
+        except Exception as opp_error:
+            st.error(f"Error loading keyword opportunities: {opp_error}")
+
 except Exception as e:
     st.error(f"Error connecting to Google Ads: {e}")
     with st.expander("Error details"):
         st.code(str(e))
-        # Debug: show which secrets are loaded
-        from config import _get_secret
-        for key in ["GOOGLE_ADS_CUSTOMER_ID", "GOOGLE_ADS_DEVELOPER_TOKEN",
-                     "GOOGLE_ADS_CLIENT_ID", "GOOGLE_ADS_CLIENT_SECRET",
-                     "GOOGLE_ADS_REFRESH_TOKEN"]:
-            val = _get_secret(key)
-            if val:
-                st.write(f"{key}: {'[SET]' } ({len(val)} chars)")
-            else:
-                st.write(f"{key}: **MISSING**")
     st.info("Please check your credentials in the .env file and make sure the Google Ads API is enabled in Google Cloud Console.")
