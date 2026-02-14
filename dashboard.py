@@ -520,7 +520,6 @@ try:
                     metrics.search_top_impression_share,
                     metrics.search_absolute_top_impression_share,
                     metrics.search_rank_lost_impression_share,
-                    metrics.search_budget_lost_impression_share,
                     metrics.impressions,
                     metrics.clicks,
                     metrics.ctr,
@@ -546,7 +545,6 @@ try:
                     "Top IS": row.metrics.search_top_impression_share or 0,
                     "Abs Top IS": row.metrics.search_absolute_top_impression_share or 0,
                     "Lost IS (Rank)": row.metrics.search_rank_lost_impression_share or 0,
-                    "Lost IS (Budget)": row.metrics.search_budget_lost_impression_share or 0,
                     "Impressions": row.metrics.impressions,
                     "Clicks": row.metrics.clicks,
                     "CTR": row.metrics.ctr or 0,
@@ -590,7 +588,6 @@ try:
                     display_kw_is["Top IS"] = display_kw_is["Top IS"].apply(lambda x: f"{x:.1%}")
                     display_kw_is["Abs Top IS"] = display_kw_is["Abs Top IS"].apply(lambda x: f"{x:.1%}")
                     display_kw_is["Lost IS (Rank)"] = display_kw_is["Lost IS (Rank)"].apply(lambda x: f"{x:.1%}")
-                    display_kw_is["Lost IS (Budget)"] = display_kw_is["Lost IS (Budget)"].apply(lambda x: f"{x:.1%}")
                     display_kw_is["CTR"] = display_kw_is["CTR"].apply(lambda x: f"{x:.2%}")
                     display_kw_is["Cost"] = display_kw_is["Cost"].apply(lambda x: f"${x:,.2f}")
                     st.dataframe(display_kw_is, use_container_width=True, hide_index=True)
@@ -622,20 +619,16 @@ try:
 
                         st.markdown("")
 
-                        # Split by reason: rank vs budget
-                        rank_lost = gaps[gaps["Lost IS (Rank)"] > gaps["Lost IS (Budget)"]]
-                        budget_lost = gaps[gaps["Lost IS (Budget)"] >= gaps["Lost IS (Rank)"]]
+                        # Analyze reason for lost IS
+                        rank_lost = gaps[gaps["Lost IS (Rank)"] > 0.10]
 
                         if not rank_lost.empty:
                             st.markdown(f'<div class="bad-box">🥊 <strong>{len(rank_lost)} keywords</strong> are losing to competitors due to <strong>ad rank</strong> (your bids or Quality Score are too low). Improve ad copy, landing pages, or increase bids.</div>', unsafe_allow_html=True)
-                        if not budget_lost.empty:
-                            st.markdown(f'<div class="insight-box">💰 <strong>{len(budget_lost)} keywords</strong> are losing impressions due to <strong>budget</strong>. Your ads stop showing when budget runs out. Consider increasing daily budget.</div>', unsafe_allow_html=True)
 
                         st.markdown("")
 
                         for _, row in gaps.iterrows():
                             lost_pct = row["Lost IS"]
-                            reason = "Rank" if row["Lost IS (Rank)"] > row["Lost IS (Budget)"] else "Budget"
                             severity = "bad-box" if lost_pct > 0.5 else "insight-box"
                             st.markdown(
                                 f'<div class="{severity}">🔑 <strong>{row["Keyword"]}</strong> ({row["Campaign"]}) — '
@@ -676,7 +669,7 @@ try:
                                 f'<div class="good-box">🎯 <strong>{row["Keyword"]}</strong> — '
                                 f'{row["Conversions"]:.0f} conversions | IS: {row["Impression Share"]:.1%} | '
                                 f'~{row["Est. Missed Clicks"]:,} missed clicks | '
-                                f'Lost due to: {"Rank" if row["Lost IS (Rank)"] > row["Lost IS (Budget)"] else "Budget"}</div>',
+                                f'Lost to rank: {row["Lost IS (Rank)"]:.1%}</div>',
                                 unsafe_allow_html=True,
                             )
                         st.markdown("")
