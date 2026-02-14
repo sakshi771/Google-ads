@@ -723,6 +723,21 @@ try:
                 else:
                     st.info("No keyword data available for gap analysis.")
 
+        except Exception as comp_error:
+            error_msg = str(comp_error)
+            if "not found" in error_msg.lower() or "invalid" in error_msg.lower() or "unrecognized" in error_msg.lower():
+                st.warning("Some competitive data is not available for your account type.")
+                st.markdown("""
+                **Possible reasons:**
+                - Your campaigns may not have enough data
+                - Auction insights require Search campaigns (not Display or Shopping)
+                - Your developer token may need Standard (not Basic) access
+                """)
+            else:
+                st.error(f"Error loading competitive data: {comp_error}")
+                with st.expander("Error details"):
+                    st.code(str(comp_error))
+
     # =============================================
     # TAB 5: KEYWORD OPPORTUNITIES
     # =============================================
