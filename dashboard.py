@@ -500,11 +500,50 @@ try:
     # =============================================
     with tab_competitors:
 
-        st.markdown("See who you're competing against in Google Ads auctions and how you stack up.")
+        st.markdown("See who you're competing against on each keyword. Uses **Last 90 Days** for reliable data.")
         st.markdown("")
 
         try:
-            query_auction = f"""
+            # Step 1: Get keyword-level impression share (always 90 days for more data)
+            query_kw_is = """
+                SELECT
+                    ad_group_criterion.keyword.text,
+                    ad_group_criterion.keyword.match_type,
+                    campaign.name,
+                    metrics.search_impression_share,
+                    metrics.search_top_impression_share,
+                    metrics.search_absolute_top_impression_share,
+                    metrics.impressions,
+                    metrics.clicks,
+                    metrics.cost_micros
+                FROM keyword_view
+                WHERE segments.date DURING LAST_90_DAYS
+                    AND campaign.status != 'REMOVED'
+                    AND metrics.impressions > 0
+                ORDER BY metrics.impressions DESC
+                LIMIT 100
+            """
+            rows_kw_is = fetch_data(query_kw_is)
+
+            kw_is_data = []
+            for row in rows_kw_is:
+                imp_share = row.metrics.search_impression_share or 0
+                kw_is_data.append({
+                    "Keyword": row.ad_group_criterion.keyword.text,
+                    "Match Type": row.ad_group_criterion.keyword.match_type.name,
+                    "Campaign": row.campaign.name,
+                    "Impression Share": imp_share,
+                    "Top IS": row.metrics.search_top_impression_share or 0,
+                    "Abs Top IS": row.metrics.search_absolute_top_impression_share or 0,
+                    "Impressions": row.metrics.impressions,
+                    "Clicks": row.metrics.clicks,
+                    "Cost": row.metrics.cost_micros / 1_000_000,
+                })
+
+            df_kw_is = pd.DataFrame(kw_is_data)
+
+            # Step 2: Get auction insights (always 90 days)
+            query_auction = """
                 SELECT
                     segments.domain,
                     metrics.auction_insight_search_impression_share,
@@ -514,108 +553,175 @@ try:
                     metrics.auction_insight_search_absolute_top_of_page_rate,
                     metrics.auction_insight_search_outranking_share
                 FROM auction_insight
-                WHERE segments.date DURING {date_range}
+                WHERE segments.date DURING LAST_90_DAYS
             """
             rows_auction = fetch_data(query_auction)
 
             auction_data = []
             for row in rows_auction:
-                domain = row.segments.domain
+                imp_share = row.metrics.auction_insight_search_impression_share or 0
                 auction_data.append({
-                    "Competitor": domain,
-                    "Impression Share": row.metrics.auction_insight_search_impression_share,
-                    "Overlap Rate": row.metrics.auction_insight_search_overlap_rate,
-                    "Position Above Rate": row.metrics.auction_insight_search_position_above_rate,
-                    "Top of Page Rate": row.metrics.auction_insight_search_top_of_page_rate,
-                    "Abs. Top of Page Rate": row.metrics.auction_insight_search_absolute_top_of_page_rate,
-                    "Outranking Share": row.metrics.auction_insight_search_outranking_share,
+                    "Competitor": row.segments.domain,
+                    "Impression Share": imp_share,
+                    "Overlap Rate": row.metrics.auction_insight_search_overlap_rate or 0,
+                    "Position Above Rate": row.metrics.auction_insight_search_position_above_rate or 0,
+                    "Top of Page Rate": row.metrics.auction_insight_search_top_of_page_rate or 0,
+                    "Abs. Top of Page Rate": row.metrics.auction_insight_search_absolute_top_of_page_rate or 0,
+                    "Outranking Share": row.metrics.auction_insight_search_outranking_share or 0,
                 })
 
             df_auction = pd.DataFrame(auction_data)
 
+            # Filter auction insights to >10% impression share
             if not df_auction.empty:
-                # Separate your data vs competitors
-                # The first row with the highest impression share is usually you
+                df_auction = df_auction[df_auction["Impression Share"] >= 0.10]
                 df_auction = df_auction.sort_values("Impression Share", ascending=False)
 
-                st.subheader("Auction Insights Overview")
-                st.caption("How you compare to competitors in the same auctions")
+            # Sub-tabs
+            comp_tab1, comp_tab2, comp_tab3 = st.tabs([
+                "📊 Your Impression Share by Keyword",
+                "🥊 Competitor Breakdown",
+                "⚡ Competitive Gaps",
+            ])
 
-                # KPIs
-                your_row = df_auction.iloc[0]
-                num_competitors = len(df_auction) - 1
+            # ---- Keyword Impression Share ----
+            with comp_tab1:
+                if not df_kw_is.empty:
+                    # Filter to >10% impression share
+                    df_kw_visible = df_kw_is[df_kw_is["Impression Share"] >= 0.10].sort_values("Impression Share", ascending=False)
 
-                ac1, ac2, ac3 = st.columns(3)
-                ac1.metric("Your Impression Share", f"{your_row['Impression Share']:.1%}")
-                ac2.metric("Competitors Found", num_competitors)
-                ac3.metric("Your Top of Page Rate", f"{your_row['Top of Page Rate']:.1%}")
+                    if not df_kw_visible.empty:
+                        kc1, kc2, kc3 = st.columns(3)
+                        kc1.metric("Keywords with >10% IS", len(df_kw_visible))
+                        kc2.metric("Avg Impression Share", f"{df_kw_visible['Impression Share'].mean():.1%}")
+                        kc3.metric("Avg Top IS", f"{df_kw_visible['Top IS'].mean():.1%}")
 
+                        st.markdown("")
+
+                        # Highlight low impression share keywords
+                        low_is = df_kw_visible[df_kw_visible["Impression Share"] < 0.50]
+                        if not low_is.empty:
+                            st.markdown(f'<div class="insight-box">⚠️ <strong>{len(low_is)} keywords</strong> have impression share below 50%. You may be missing traffic — consider increasing bids or budget.</div>', unsafe_allow_html=True)
+                            st.markdown("")
+
+                        display_kw_is = df_kw_visible.copy()
+                        display_kw_is["Impression Share"] = display_kw_is["Impression Share"].apply(lambda x: f"{x:.1%}")
+                        display_kw_is["Top IS"] = display_kw_is["Top IS"].apply(lambda x: f"{x:.1%}")
+                        display_kw_is["Abs Top IS"] = display_kw_is["Abs Top IS"].apply(lambda x: f"{x:.1%}")
+                        display_kw_is["Cost"] = display_kw_is["Cost"].apply(lambda x: f"${x:,.2f}")
+                        st.dataframe(display_kw_is, use_container_width=True, hide_index=True)
+
+                        # Chart
+                        st.subheader("Impression Share by Keyword")
+                        chart_is = df_kw_visible[["Keyword", "Impression Share"]].set_index("Keyword").sort_values("Impression Share")
+                        st.bar_chart(chart_is)
+                    else:
+                        st.info("No keywords with >10% impression share found. Try running campaigns longer to gather more data.")
+                else:
+                    st.info("No keyword impression share data available.")
+
+            # ---- Competitor Breakdown ----
+            with comp_tab2:
+                if not df_auction.empty:
+                    st.caption("Only showing competitors with >10% impression share (Last 90 Days)")
+
+                    # KPIs
+                    your_row = df_auction.iloc[0]
+                    competitors = df_auction.iloc[1:]
+                    num_competitors = len(competitors)
+
+                    ac1, ac2, ac3 = st.columns(3)
+                    ac1.metric("Your Impression Share", f"{your_row['Impression Share']:.1%}")
+                    ac2.metric("Significant Competitors", num_competitors)
+                    ac3.metric("Your Top of Page Rate", f"{your_row['Top of Page Rate']:.1%}")
+
+                    st.markdown("")
+
+                    # Full table
+                    display_auction = df_auction.copy()
+                    for col in ["Impression Share", "Overlap Rate", "Position Above Rate",
+                                "Top of Page Rate", "Abs. Top of Page Rate", "Outranking Share"]:
+                        display_auction[col] = display_auction[col].apply(lambda x: f"{x:.1%}")
+                    st.dataframe(display_auction, use_container_width=True, hide_index=True)
+
+                    # Chart
+                    st.subheader("Impression Share: You vs Competitors")
+                    chart_auction = df_auction[["Competitor", "Impression Share"]].set_index("Competitor").sort_values("Impression Share")
+                    st.bar_chart(chart_auction)
+
+                    # Analysis
+                    if not competitors.empty:
+                        st.subheader("Competitor Analysis")
+
+                        top_competitor = competitors.iloc[0]
+                        st.markdown(f'<div class="bad-box">🥊 <strong>Biggest competitor:</strong> {top_competitor["Competitor"]} — {top_competitor["Impression Share"]:.1%} impression share, outranks you {top_competitor["Position Above Rate"]:.1%} of the time.</div>', unsafe_allow_html=True)
+
+                        above_you = competitors[competitors["Position Above Rate"] > 0.3].sort_values("Position Above Rate", ascending=False)
+                        if not above_you.empty:
+                            st.markdown("")
+                            st.markdown("**Competitors frequently ranking above you:**")
+                            for _, comp in above_you.iterrows():
+                                threat_level = "bad-box" if comp["Position Above Rate"] > 0.5 else "insight-box"
+                                st.markdown(
+                                    f'<div class="{threat_level}">⬆️ <strong>{comp["Competitor"]}</strong> — '
+                                    f'above you {comp["Position Above Rate"]:.1%} of the time, '
+                                    f'overlap: {comp["Overlap Rate"]:.1%}</div>',
+                                    unsafe_allow_html=True,
+                                )
+
+                        you_beat = competitors[competitors["Outranking Share"] < 0.3].sort_values("Outranking Share")
+                        if not you_beat.empty:
+                            st.markdown("")
+                            st.markdown("**Competitors you're beating:**")
+                            for _, comp in you_beat.head(5).iterrows():
+                                st.markdown(
+                                    f'<div class="good-box">✅ <strong>{comp["Competitor"]}</strong> — '
+                                    f'their outranking share is only {comp["Outranking Share"]:.1%}</div>',
+                                    unsafe_allow_html=True,
+                                )
+                else:
+                    st.info("No competitors found with >10% impression share in the last 90 days.")
+
+            # ---- Competitive Gaps ----
+            with comp_tab3:
+                st.markdown("Keywords where you're **losing the most ground** to competitors.")
                 st.markdown("")
 
-                # Full table
-                display_auction = df_auction.copy()
-                for col in ["Impression Share", "Overlap Rate", "Position Above Rate",
-                            "Top of Page Rate", "Abs. Top of Page Rate", "Outranking Share"]:
-                    display_auction[col] = display_auction[col].apply(lambda x: f"{x:.1%}")
-                st.dataframe(display_auction, use_container_width=True, hide_index=True)
+                if not df_kw_is.empty:
+                    # Keywords with low impression share = competitive gaps
+                    gaps = df_kw_is[
+                        (df_kw_is["Impression Share"] >= 0.10) &
+                        (df_kw_is["Impression Share"] < 0.70)
+                    ].sort_values("Impression Share")
 
-                # Competitor chart
-                st.subheader("Impression Share: You vs Competitors")
-                chart_auction = df_auction[["Competitor", "Impression Share"]].set_index("Competitor").sort_values("Impression Share")
-                st.bar_chart(chart_auction)
+                    if not gaps.empty:
+                        # Calculate lost impression share
+                        gaps = gaps.copy()
+                        gaps["Lost IS"] = 1 - gaps["Impression Share"]
+                        gaps["Est. Missed Clicks"] = (gaps["Clicks"] * gaps["Lost IS"] / gaps["Impression Share"]).astype(int)
 
-                # Top competitors analysis
-                competitors = df_auction.iloc[1:]  # Exclude yourself
-                if not competitors.empty:
-                    st.subheader("Competitor Analysis")
+                        gc1, gc2 = st.columns(2)
+                        gc1.metric("Keywords with Gaps", len(gaps))
+                        gc2.metric("Est. Total Missed Clicks", f"{gaps['Est. Missed Clicks'].sum():,}")
 
-                    top_competitor = competitors.iloc[0]
-                    st.markdown(f'<div class="bad-box">🥊 <strong>Biggest competitor:</strong> {top_competitor["Competitor"]} — they appear in {top_competitor["Impression Share"]:.1%} of auctions and outrank you {top_competitor["Position Above Rate"]:.1%} of the time.</div>', unsafe_allow_html=True)
-
-                    # Competitors who frequently appear above you
-                    above_you = competitors[competitors["Position Above Rate"] > 0.3].sort_values("Position Above Rate", ascending=False)
-                    if not above_you.empty:
                         st.markdown("")
-                        st.markdown("**Competitors frequently ranking above you:**")
-                        for _, comp in above_you.iterrows():
-                            threat_level = "bad-box" if comp["Position Above Rate"] > 0.5 else "insight-box"
+                        st.markdown('<div class="insight-box">💡 <strong>These keywords have room to grow.</strong> Increasing bids or budget could capture the missed impression share and bring more clicks.</div>', unsafe_allow_html=True)
+                        st.markdown("")
+
+                        for _, row in gaps.iterrows():
+                            lost_pct = row["Lost IS"]
+                            severity = "bad-box" if lost_pct > 0.5 else "insight-box"
                             st.markdown(
-                                f'<div class="{threat_level}">⬆️ <strong>{comp["Competitor"]}</strong> — '
-                                f'above you {comp["Position Above Rate"]:.1%} of the time, '
-                                f'overlap rate: {comp["Overlap Rate"]:.1%}</div>',
+                                f'<div class="{severity}">🔑 <strong>{row["Keyword"]}</strong> ({row["Campaign"]}) — '
+                                f'Your IS: {row["Impression Share"]:.1%} | '
+                                f'Missing: {lost_pct:.1%} | '
+                                f'Est. missed clicks: ~{row["Est. Missed Clicks"]:,}</div>',
                                 unsafe_allow_html=True,
                             )
-
-                    # Competitors you outrank
-                    you_outrank = competitors[competitors["Outranking Share"] < 0.3].sort_values("Outranking Share")
-                    if not you_outrank.empty:
-                        st.markdown("")
-                        st.markdown("**Competitors you're beating:**")
-                        for _, comp in you_outrank.head(5).iterrows():
-                            st.markdown(
-                                f'<div class="good-box">✅ <strong>{comp["Competitor"]}</strong> — '
-                                f'you outrank them most of the time (their outranking share: {comp["Outranking Share"]:.1%})</div>',
-                                unsafe_allow_html=True,
-                            )
-            else:
-                st.info("No auction insight data available for this date range.")
-
-        except Exception as auction_error:
-            error_msg = str(auction_error)
-            if "not found" in error_msg.lower() or "invalid" in error_msg.lower() or "unrecognized" in error_msg.lower():
-                st.warning("Auction Insights are not available for your account type or the selected date range.")
-                st.markdown("""
-                **Possible reasons:**
-                - Your campaigns may not have enough data for auction insights
-                - Auction insights require Search campaigns (not Display or Shopping)
-                - Your developer token may need Standard (not Basic) access
-
-                **To view auction insights manually:**
-                1. Go to Google Ads
-                2. Click on a campaign > Auction insights
-                """)
-            else:
-                st.error(f"Error loading auction insights: {auction_error}")
+                    else:
+                        st.markdown('<div class="good-box">✅ Your keywords have strong impression share. No major competitive gaps found!</div>', unsafe_allow_html=True)
+                else:
+                    st.info("No keyword data available for gap analysis.")
 
     # =============================================
     # TAB 5: KEYWORD OPPORTUNITIES
