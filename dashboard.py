@@ -510,4 +510,14 @@ except Exception as e:
     st.error(f"Error connecting to Google Ads: {e}")
     with st.expander("Error details"):
         st.code(str(e))
+        # Debug: show which secrets are loaded
+        from config import _get_secret
+        for key in ["GOOGLE_ADS_CUSTOMER_ID", "GOOGLE_ADS_DEVELOPER_TOKEN",
+                     "GOOGLE_ADS_CLIENT_ID", "GOOGLE_ADS_CLIENT_SECRET",
+                     "GOOGLE_ADS_REFRESH_TOKEN"]:
+            val = _get_secret(key)
+            if val:
+                st.write(f"{key}: {'[SET]' } ({len(val)} chars)")
+            else:
+                st.write(f"{key}: **MISSING**")
     st.info("Please check your credentials in the .env file and make sure the Google Ads API is enabled in Google Cloud Console.")
