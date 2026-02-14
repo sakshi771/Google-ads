@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime, timedelta
 from config import get_google_ads_client, get_customer_id
 
 st.set_page_config(page_title="Google Ads Dashboard", page_icon="📊", layout="wide")
@@ -63,7 +64,7 @@ with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Google_Ads_logo.svg/1200px-Google_Ads_logo.svg.png", width=180)
     st.markdown("---")
     date_range = st.selectbox("📅 Date Range", [
-        "LAST_7_DAYS", "LAST_14_DAYS", "LAST_30_DAYS", "LAST_90_DAYS",
+        "LAST_7_DAYS", "LAST_14_DAYS", "LAST_30_DAYS",
     ], index=2, format_func=lambda x: x.replace("_", " ").title())
     st.markdown("---")
     st.caption("Dashboard refreshes every 5 minutes.\nClick 'R' to refresh manually.")
@@ -503,9 +504,14 @@ try:
         st.markdown("See who you're competing against on each keyword. Uses **Last 90 Days** for reliable data.")
         st.markdown("")
 
+        # Calculate 90-day date range
+        date_end = datetime.now().strftime("%Y-%m-%d")
+        date_start = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+        date_filter_90d = f"segments.date BETWEEN '{date_start}' AND '{date_end}'"
+
         try:
             # Step 1: Get keyword-level impression share (always 90 days for more data)
-            query_kw_is = """
+            query_kw_is = f"""
                 SELECT
                     ad_group_criterion.keyword.text,
                     ad_group_criterion.keyword.match_type,
@@ -517,7 +523,7 @@ try:
                     metrics.clicks,
                     metrics.cost_micros
                 FROM keyword_view
-                WHERE segments.date DURING LAST_90_DAYS
+                WHERE {date_filter_90d}
                     AND campaign.status != 'REMOVED'
                     AND metrics.impressions > 0
                 ORDER BY metrics.impressions DESC
@@ -543,7 +549,7 @@ try:
             df_kw_is = pd.DataFrame(kw_is_data)
 
             # Step 2: Get auction insights (always 90 days)
-            query_auction = """
+            query_auction = f"""
                 SELECT
                     segments.domain,
                     metrics.auction_insight_search_impression_share,
@@ -553,7 +559,7 @@ try:
                     metrics.auction_insight_search_absolute_top_of_page_rate,
                     metrics.auction_insight_search_outranking_share
                 FROM auction_insight
-                WHERE segments.date DURING LAST_90_DAYS
+                WHERE {date_filter_90d}
             """
             rows_auction = fetch_data(query_auction)
 
