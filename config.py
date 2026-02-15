@@ -55,6 +55,6 @@ def get_ga4_property_id():
     return _get_secret("GA4_PROPERTY_ID")
 
 
-def get_openai_api_key():
-    """Return the OpenAI API key."""
-    return _get_secret("OPENAI_API_KEY")
+def get_groq_api_key():
+    """Return the Groq API key."""
+    return _get_secret("GROQ_API_KEY")

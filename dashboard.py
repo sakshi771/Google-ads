@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
-from config import get_google_ads_client, get_customer_id, get_ga4_client, get_ga4_property_id, get_openai_api_key
+from config import get_google_ads_client, get_customer_id, get_ga4_client, get_ga4_property_id, get_groq_api_key
 
 st.set_page_config(page_title="Google Ads Dashboard", page_icon="📊", layout="wide")
 
@@ -1467,21 +1467,22 @@ try:
         st.markdown("Ask questions about your Google Ads data and get **AI-powered answers**.")
         st.markdown("")
 
-        openai_key = get_openai_api_key()
+        groq_key = get_groq_api_key()
 
-        if not openai_key:
-            st.warning("OpenAI API key not configured. Add `OPENAI_API_KEY` to your .env or Streamlit secrets.")
+        if not groq_key:
+            st.warning("Groq API key not configured. Add `GROQ_API_KEY` to your .env or Streamlit secrets.")
             st.markdown("""
-**How to get your OpenAI API key:**
-1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-2. Click **Create new secret key**
-3. Copy the key and add it to your secrets
+**How to get a free Groq API key:**
+1. Go to [console.groq.com](https://console.groq.com)
+2. Sign up (free, no credit card needed)
+3. Go to **API Keys** → **Create API Key**
+4. Copy the key and add it to your secrets
             """)
         else:
             try:
-                from openai import OpenAI
+                from groq import Groq
 
-                oai_client = OpenAI(api_key=openai_key)
+                groq_client = Groq(api_key=groq_key)
 
                 # Build context from all loaded data
                 context_parts = []
@@ -1567,8 +1568,8 @@ try:
                     for m in st.session_state.chat_history:
                         messages.append({"role": m["role"], "content": m["content"]})
                     try:
-                        resp = oai_client.chat.completions.create(
-                            model="gpt-4o-mini",
+                        resp = groq_client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
                             messages=messages,
                         )
                         answer = resp.choices[0].message.content
@@ -1608,7 +1609,7 @@ try:
                         st.rerun()
 
             except ImportError:
-                st.warning("OpenAI library not installed. Run: `pip install openai`")
+                st.warning("Groq library not installed. Run: `pip install groq`")
             except Exception as chat_error:
                 st.error(f"Error with AI chat: {chat_error}")
                 with st.expander("Error details"):
