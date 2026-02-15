@@ -1481,13 +1481,12 @@ try:
             try:
                 from openai import OpenAI
 
-                client = OpenAI(api_key=openai_key)
+                oai_client = OpenAI(api_key=openai_key)
 
                 # Build context from all loaded data
                 context_parts = []
                 context_parts.append(f"Date range: {start_date} to {end_date}")
 
-                # Campaign summary
                 if not df_campaigns.empty:
                     context_parts.append(f"\n--- CAMPAIGN DATA ({len(df_campaigns)} campaigns) ---")
                     for _, row in df_campaigns.iterrows():
@@ -1505,7 +1504,6 @@ try:
                         f"Conversions={df_campaigns['Conversions'].sum():.0f}"
                     )
 
-                # Keyword data
                 try:
                     if not df_kw.empty:
                         context_parts.append(f"\n--- KEYWORD DATA (top {len(df_kw)} keywords) ---")
@@ -1519,7 +1517,6 @@ try:
                 except NameError:
                     pass
 
-                # Search term data
                 try:
                     if not df_st.empty:
                         context_parts.append(f"\n--- SEARCH TERM DATA (top {len(df_st)} terms) ---")
@@ -1532,7 +1529,6 @@ try:
                 except NameError:
                     pass
 
-                # Landing page data
                 try:
                     if not df_ads_lp.empty:
                         context_parts.append(f"\n--- LANDING PAGE DATA ({len(df_ads_lp)} pages) ---")
@@ -1548,12 +1544,12 @@ try:
 
                 data_context = "\n".join(context_parts)
 
-                system_prompt = f"""You are a Google Ads analyst assistant. You answer questions about the user's Google Ads account data.
-Be concise, specific, and actionable. Use the actual numbers from the data. Currency is INR (₹).
-If the user asks something not covered by the data, say so honestly.
-
-Here is the current account data:
-{data_context}"""
+                system_prompt = (
+                    "You are a Google Ads analyst assistant. You answer questions about the user's Google Ads account data.\n"
+                    "Be concise, specific, and actionable. Use the actual numbers from the data. Currency is INR (₹).\n"
+                    "If the user asks something not covered by the data, say so honestly.\n\n"
+                    f"Here is the current account data:\n{data_context}"
+                )
 
                 # Initialize chat history
                 if "chat_history" not in st.session_state:
@@ -1564,47 +1560,50 @@ Here is the current account data:
                     with st.chat_message(msg["role"]):
                         st.markdown(msg["content"])
 
-                # Suggested questions
+                # Helper to call OpenAI and store response
+                def get_ai_response(user_question):
+                    st.session_state.chat_history.append({"role": "user", "content": user_question})
+                    messages = [{"role": "system", "content": system_prompt}]
+                    for m in st.session_state.chat_history:
+                        messages.append({"role": m["role"], "content": m["content"]})
+                    try:
+                        resp = oai_client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=messages,
+                        )
+                        answer = resp.choices[0].message.content
+                    except Exception as api_err:
+                        answer = f"Error: {api_err}"
+                    st.session_state.chat_history.append({"role": "assistant", "content": answer})
+
+                # Suggested questions (only when no history)
                 if not st.session_state.chat_history:
                     st.markdown("**Try asking:**")
                     suggestions = [
                         "Which campaign is performing best?",
                         "Where am I wasting the most money?",
                         "What keywords should I pause?",
-                        "Give me a summary of my account performance",
-                        "Which landing pages need improvement?",
+                        "Summarize my account performance",
                     ]
-                    cols = st.columns(len(suggestions))
+                    sc1, sc2 = st.columns(2)
                     for i, suggestion in enumerate(suggestions):
-                        if cols[i].button(suggestion, key=f"suggest_{i}"):
-                            st.session_state.chat_history.append({"role": "user", "content": suggestion})
+                        col = sc1 if i % 2 == 0 else sc2
+                        if col.button(suggestion, key=f"suggest_{i}", use_container_width=True):
+                            get_ai_response(suggestion)
                             st.rerun()
 
-                # Chat input
-                if prompt := st.chat_input("Ask about your ads data..."):
-                    st.session_state.chat_history.append({"role": "user", "content": prompt})
-                    with st.chat_message("user"):
-                        st.markdown(prompt)
+                # Chat form (works reliably inside tabs)
+                with st.form("chat_form", clear_on_submit=True):
+                    user_input = st.text_input("Your question:", placeholder="Ask about your ads data...", label_visibility="collapsed")
+                    submitted = st.form_submit_button("Send", use_container_width=True)
 
-                    # Build messages for OpenAI
-                    messages = [{"role": "system", "content": system_prompt}]
-                    for msg in st.session_state.chat_history:
-                        messages.append({"role": msg["role"], "content": msg["content"]})
-
-                    with st.chat_message("assistant"):
-                        with st.spinner("Thinking..."):
-                            response = client.chat.completions.create(
-                                model="gpt-4o-mini",
-                                messages=messages,
-                            )
-                            answer = response.choices[0].message.content
-                        st.markdown(answer)
-
-                    st.session_state.chat_history.append({"role": "assistant", "content": answer})
+                if submitted and user_input.strip():
+                    get_ai_response(user_input.strip())
+                    st.rerun()
 
                 # Clear chat button
                 if st.session_state.chat_history:
-                    if st.button("🗑️ Clear chat"):
+                    if st.button("🗑️ Clear chat", key="clear_chat"):
                         st.session_state.chat_history = []
                         st.rerun()
 
