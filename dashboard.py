@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from config import get_google_ads_client, get_customer_id
 
 st.set_page_config(page_title="Google Ads Dashboard", page_icon="📊", layout="wide")
@@ -63,9 +63,48 @@ def fetch_data(query):
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Google_Ads_logo.svg/1200px-Google_Ads_logo.svg.png", width=180)
     st.markdown("---")
-    date_range = st.selectbox("📅 Date Range", [
-        "LAST_7_DAYS", "LAST_14_DAYS", "LAST_30_DAYS",
-    ], index=2, format_func=lambda x: x.replace("_", " ").title())
+
+    # Date range
+    date_mode = st.radio("📅 Date Range", ["Preset", "Custom"], horizontal=True)
+    if date_mode == "Preset":
+        preset = st.selectbox("Select range", [
+            "Last 7 Days", "Last 14 Days", "Last 30 Days",
+            "Last 60 Days", "Last 90 Days",
+        ], index=2)
+        days_map = {
+            "Last 7 Days": 7, "Last 14 Days": 14, "Last 30 Days": 30,
+            "Last 60 Days": 60, "Last 90 Days": 90,
+        }
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days_map[preset])
+    else:
+        default_end = date.today()
+        default_start = default_end - timedelta(days=30)
+        date_range_input = st.date_input(
+            "Select dates",
+            value=(default_start, default_end),
+        )
+        if isinstance(date_range_input, (list, tuple)) and len(date_range_input) == 2:
+            start_date, end_date = date_range_input
+        else:
+            start_date, end_date = default_start, default_end
+
+    date_clause = f"segments.date BETWEEN '{start_date}' AND '{end_date}'"
+    st.caption(f"📆 {start_date.strftime('%b %d, %Y')} — {end_date.strftime('%b %d, %Y')}")
+
+    st.markdown("---")
+
+    # Status filter
+    status_filter = st.multiselect(
+        "📋 Campaign Status",
+        ["ENABLED", "PAUSED"],
+        default=["ENABLED", "PAUSED"],
+    )
+    if len(status_filter) == 1:
+        status_clause = f"AND campaign.status = '{status_filter[0]}'"
+    else:
+        status_clause = "AND campaign.status != 'REMOVED'"
+
     st.markdown("---")
     st.caption("Dashboard refreshes every 5 minutes.\nClick 'R' to refresh manually.")
 
@@ -87,8 +126,8 @@ try:
             metrics.conversions,
             metrics.cost_per_conversion
         FROM campaign
-        WHERE segments.date DURING {date_range}
-            AND campaign.status != 'REMOVED'
+        WHERE {date_clause}
+            {status_clause}
         ORDER BY metrics.cost_micros DESC
     """
     rows = fetch_data(query_campaigns)
@@ -112,6 +151,20 @@ try:
     df_campaigns = pd.DataFrame(campaigns)
 
     # =============================================
+    # CAMPAIGN NAME FILTER
+    # =============================================
+    if not df_campaigns.empty:
+        all_campaign_names = sorted(df_campaigns["Campaign"].unique().tolist())
+        selected_campaigns = st.multiselect(
+            "🎯 Filter by Campaign",
+            all_campaign_names,
+            default=all_campaign_names,
+        )
+        df_campaigns = df_campaigns[df_campaigns["Campaign"].isin(selected_campaigns)]
+    else:
+        selected_campaigns = []
+
+    # =============================================
     # TOP-LEVEL KPIs (always visible)
     # =============================================
     if not df_campaigns.empty:
@@ -132,7 +185,7 @@ try:
 
         st.markdown("")
     else:
-        st.warning("No campaign data found for this date range.")
+        st.warning("No campaign data found for the selected filters.")
 
     # =============================================
     # TABS
@@ -187,26 +240,29 @@ try:
         query_daily = f"""
             SELECT
                 segments.date,
+                campaign.name,
                 metrics.cost_micros,
                 metrics.clicks,
                 metrics.impressions,
                 metrics.conversions
             FROM campaign
-            WHERE segments.date DURING {date_range}
-                AND campaign.status != 'REMOVED'
+            WHERE {date_clause}
+                {status_clause}
             ORDER BY segments.date ASC
         """
         rows_daily = fetch_data(query_daily)
 
         daily_data = {}
         for row in rows_daily:
-            date = row.segments.date
-            if date not in daily_data:
-                daily_data[date] = {"Cost": 0, "Clicks": 0, "Impressions": 0, "Conversions": 0}
-            daily_data[date]["Cost"] += row.metrics.cost_micros / 1_000_000
-            daily_data[date]["Clicks"] += row.metrics.clicks
-            daily_data[date]["Impressions"] += row.metrics.impressions
-            daily_data[date]["Conversions"] += row.metrics.conversions
+            if selected_campaigns and row.campaign.name not in selected_campaigns:
+                continue
+            d = row.segments.date
+            if d not in daily_data:
+                daily_data[d] = {"Cost": 0, "Clicks": 0, "Impressions": 0, "Conversions": 0}
+            daily_data[d]["Cost"] += row.metrics.cost_micros / 1_000_000
+            daily_data[d]["Clicks"] += row.metrics.clicks
+            daily_data[d]["Impressions"] += row.metrics.impressions
+            daily_data[d]["Conversions"] += row.metrics.conversions
 
         if daily_data:
             df_daily = pd.DataFrame.from_dict(daily_data, orient="index")
@@ -268,8 +324,8 @@ try:
                 metrics.conversions,
                 metrics.cost_per_conversion
             FROM keyword_view
-            WHERE segments.date DURING {date_range}
-                AND campaign.status != 'REMOVED'
+            WHERE {date_clause}
+                {status_clause}
             ORDER BY metrics.cost_micros DESC
             LIMIT 50
         """
@@ -277,6 +333,8 @@ try:
 
         kw_data = []
         for row in rows_kw:
+            if selected_campaigns and row.campaign.name not in selected_campaigns:
+                continue
             cost = row.metrics.cost_micros / 1_000_000
             conversions = row.metrics.conversions
             cpc = row.metrics.average_cpc / 1_000_000
@@ -308,8 +366,8 @@ try:
                 metrics.cost_micros,
                 metrics.conversions
             FROM search_term_view
-            WHERE segments.date DURING {date_range}
-                AND campaign.status != 'REMOVED'
+            WHERE {date_clause}
+                {status_clause}
             ORDER BY metrics.cost_micros DESC
             LIMIT 100
         """
@@ -317,6 +375,8 @@ try:
 
         st_data = []
         for row in rows_st:
+            if selected_campaigns and row.campaign.name not in selected_campaigns:
+                continue
             cost = row.metrics.cost_micros / 1_000_000
             conversions = row.metrics.conversions
             st_data.append({
@@ -501,16 +561,10 @@ try:
     # =============================================
     with tab_competitors:
 
-        st.markdown("Analyze your competitive position using **keyword-level impression share** (Last 90 Days).")
+        st.markdown("Analyze your competitive position using **keyword-level impression share**.")
         st.markdown("")
 
-        # Calculate 90-day date range
-        date_end = datetime.now().strftime("%Y-%m-%d")
-        date_start = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
-        date_filter_90d = f"segments.date BETWEEN '{date_start}' AND '{date_end}'"
-
         try:
-            # Get keyword-level impression share
             query_kw_is = f"""
                 SELECT
                     ad_group_criterion.keyword.text,
@@ -526,8 +580,8 @@ try:
                     metrics.cost_micros,
                     metrics.conversions
                 FROM keyword_view
-                WHERE {date_filter_90d}
-                    AND campaign.status != 'REMOVED'
+                WHERE {date_clause}
+                    {status_clause}
                     AND metrics.impressions > 0
                 ORDER BY metrics.impressions DESC
                 LIMIT 100
@@ -536,6 +590,8 @@ try:
 
             kw_is_data = []
             for row in rows_kw_is:
+                if selected_campaigns and row.campaign.name not in selected_campaigns:
+                    continue
                 imp_share = row.metrics.search_impression_share or 0
                 kw_is_data.append({
                     "Keyword": row.ad_group_criterion.keyword.text,
@@ -596,7 +652,10 @@ try:
                     chart_is = df_kw_visible[["Keyword", "Impression Share"]].head(20).set_index("Keyword").sort_values("Impression Share")
                     st.bar_chart(chart_is)
                 else:
-                    st.info("No keywords with >10% impression share found.")
+                    if df_kw_is.empty:
+                        st.info("No keyword impression share data found. Try expanding the date range.")
+                    else:
+                        st.info("No keywords with >10% impression share found. Try expanding the date range.")
 
             # ---- Competitive Gaps ----
             with comp_tab2:
@@ -619,7 +678,6 @@ try:
 
                         st.markdown("")
 
-                        # Analyze reason for lost IS
                         rank_lost = gaps[gaps["Lost IS (Rank)"] > 0.10]
 
                         if not rank_lost.empty:
@@ -629,6 +687,9 @@ try:
 
                         for _, row in gaps.iterrows():
                             lost_pct = row["Lost IS"]
+                            rank_loss = row["Lost IS (Rank)"]
+                            budget_loss = max(0, lost_pct - rank_loss)
+                            reason = "Rank" if rank_loss >= budget_loss else "Budget"
                             severity = "bad-box" if lost_pct > 0.5 else "insight-box"
                             st.markdown(
                                 f'<div class="{severity}">🔑 <strong>{row["Keyword"]}</strong> ({row["Campaign"]}) — '
@@ -722,8 +783,8 @@ try:
                 metrics.cost_micros,
                 metrics.conversions
             FROM search_term_view
-            WHERE segments.date DURING {date_range}
-                AND campaign.status != 'REMOVED'
+            WHERE {date_clause}
+                {status_clause}
             ORDER BY metrics.impressions DESC
             LIMIT 200
         """
@@ -733,8 +794,8 @@ try:
                 ad_group_criterion.keyword.text,
                 ad_group_criterion.keyword.match_type
             FROM keyword_view
-            WHERE segments.date DURING {date_range}
-                AND campaign.status != 'REMOVED'
+            WHERE {date_clause}
+                {status_clause}
         """
 
         try:
@@ -750,6 +811,8 @@ try:
             opportunities = []
             already_targeted = []
             for row in rows_all_st:
+                if selected_campaigns and row.campaign.name not in selected_campaigns:
+                    continue
                 term = row.search_term_view.search_term
                 cost = row.metrics.cost_micros / 1_000_000
                 conversions = row.metrics.conversions
@@ -829,7 +892,7 @@ try:
                             display_click = display_click.drop(columns=["CPA"])
                             st.dataframe(display_click, use_container_width=True, hide_index=True)
                     else:
-                        st.info("No high-value opportunities found. Try expanding the date range to Last 90 Days for more data.")
+                        st.info("No high-value opportunities found. Try expanding the date range for more data.")
                 else:
                     st.info("No untargeted search terms found.")
 
