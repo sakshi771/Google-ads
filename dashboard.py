@@ -155,12 +155,13 @@ try:
     # =============================================
     if not df_campaigns.empty:
         all_campaign_names = sorted(df_campaigns["Campaign"].unique().tolist())
-        selected_campaigns = st.multiselect(
-            "🎯 Filter by Campaign",
-            all_campaign_names,
-            default=all_campaign_names,
-        )
-        df_campaigns = df_campaigns[df_campaigns["Campaign"].isin(selected_campaigns)]
+        campaign_options = ["All Campaigns"] + all_campaign_names
+        selected_campaign = st.selectbox("🎯 Filter by Campaign", campaign_options)
+        if selected_campaign == "All Campaigns":
+            selected_campaigns = all_campaign_names
+        else:
+            selected_campaigns = [selected_campaign]
+            df_campaigns = df_campaigns[df_campaigns["Campaign"].isin(selected_campaigns)]
     else:
         selected_campaigns = []
 
@@ -176,11 +177,11 @@ try:
         overall_cpc = total_spend / total_clicks if total_clicks > 0 else 0
 
         c1, c2, c3, c4, c5, c6 = st.columns(6)
-        c1.metric("Total Spend", f"${total_spend:,.2f}")
+        c1.metric("Total Spend", f"₹{total_spend:,.2f}")
         c2.metric("Clicks", f"{total_clicks:,}")
         c3.metric("Impressions", f"{total_impressions:,}")
         c4.metric("CTR", f"{overall_ctr:.2%}")
-        c5.metric("Avg CPC", f"${overall_cpc:.2f}")
+        c5.metric("Avg CPC", f"₹{overall_cpc:.2f}")
         c6.metric("Conversions", f"{total_conversions:,.0f}")
 
         st.markdown("")
@@ -207,9 +208,9 @@ try:
             st.subheader("Campaign Performance")
             display_df = df_campaigns.copy()
             display_df["CTR"] = display_df["CTR"].apply(lambda x: f"{x:.2%}")
-            display_df["Avg CPC"] = display_df["Avg CPC"].apply(lambda x: f"${x:.2f}")
-            display_df["Cost"] = display_df["Cost"].apply(lambda x: f"${x:,.2f}")
-            display_df["Cost/Conv"] = display_df["Cost/Conv"].apply(lambda x: f"${x:.2f}" if x > 0 else "-")
+            display_df["Avg CPC"] = display_df["Avg CPC"].apply(lambda x: f"₹{x:.2f}")
+            display_df["Cost"] = display_df["Cost"].apply(lambda x: f"₹{x:,.2f}")
+            display_df["Cost/Conv"] = display_df["Cost/Conv"].apply(lambda x: f"₹{x:.2f}" if x > 0 else "-")
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
             col_left, col_right = st.columns(2)
@@ -230,7 +231,7 @@ try:
             st.markdown(f'<div class="good-box">🏆 <strong>Best CTR:</strong> {best_ctr["Campaign"]} at {best_ctr["CTR"]:.2%}</div>', unsafe_allow_html=True)
             if worst_ctr is not None:
                 st.markdown(f'<div class="bad-box">⚠️ <strong>Lowest CTR:</strong> {worst_ctr["Campaign"]} at {worst_ctr["CTR"]:.2%} — consider revising ad copy</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="insight-box">💰 <strong>Biggest spender:</strong> {biggest_spender["Campaign"]} at ${biggest_spender["Cost"]:,.2f}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="insight-box">💰 <strong>Biggest spender:</strong> {biggest_spender["Campaign"]} at ₹{biggest_spender["Cost"]:,.2f}</div>', unsafe_allow_html=True)
 
     # =============================================
     # TAB 2: DAILY TRENDS
@@ -270,7 +271,7 @@ try:
             df_daily = df_daily.sort_index()
 
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Avg Daily Spend", f"${df_daily['Cost'].mean():,.2f}")
+            c1.metric("Avg Daily Spend", f"₹{df_daily['Cost'].mean():,.2f}")
             c2.metric("Avg Daily Clicks", f"{df_daily['Clicks'].mean():,.0f}")
             c3.metric("Avg Daily Impressions", f"{df_daily['Impressions'].mean():,.0f}")
             c4.metric("Avg Daily Conversions", f"{df_daily['Conversions'].mean():,.1f}")
@@ -297,7 +298,7 @@ try:
             peak_spend_day = df_daily["Cost"].idxmax().strftime("%A, %b %d")
             peak_clicks_day = df_daily["Clicks"].idxmax().strftime("%A, %b %d")
             pc1, pc2 = st.columns(2)
-            pc1.markdown(f'<div class="insight-box">💰 <strong>Highest spend day:</strong> {peak_spend_day} (${df_daily["Cost"].max():,.2f})</div>', unsafe_allow_html=True)
+            pc1.markdown(f'<div class="insight-box">💰 <strong>Highest spend day:</strong> {peak_spend_day} (₹{df_daily["Cost"].max():,.2f})</div>', unsafe_allow_html=True)
             pc2.markdown(f'<div class="good-box">👆 <strong>Most clicks day:</strong> {peak_clicks_day} ({df_daily["Clicks"].max():,} clicks)</div>', unsafe_allow_html=True)
         else:
             st.info("No daily data found for this date range.")
@@ -424,9 +425,9 @@ try:
 
                 display_kw = filtered_kw.copy()
                 display_kw["CTR"] = display_kw["CTR"].apply(lambda x: f"{x:.2%}")
-                display_kw["CPC"] = display_kw["CPC"].apply(lambda x: f"${x:.2f}")
-                display_kw["Cost"] = display_kw["Cost"].apply(lambda x: f"${x:,.2f}")
-                display_kw["CPA"] = display_kw["CPA"].apply(lambda x: f"${x:.2f}" if x > 0 else "-")
+                display_kw["CPC"] = display_kw["CPC"].apply(lambda x: f"₹{x:.2f}")
+                display_kw["Cost"] = display_kw["Cost"].apply(lambda x: f"₹{x:,.2f}")
+                display_kw["CPA"] = display_kw["CPA"].apply(lambda x: f"₹{x:.2f}" if x > 0 else "-")
                 st.dataframe(display_kw, use_container_width=True, hide_index=True)
 
                 st.subheader("Spend by Match Type")
@@ -436,8 +437,8 @@ try:
                     Cost=("Cost", "sum"),
                     Conversions=("Conversions", "sum"),
                 ).reset_index()
-                match_summary["Avg CPC"] = match_summary.apply(lambda r: f"${r['Cost']/r['Clicks']:.2f}" if r["Clicks"] > 0 else "-", axis=1)
-                match_summary["Cost"] = match_summary["Cost"].apply(lambda x: f"${x:,.2f}")
+                match_summary["Avg CPC"] = match_summary.apply(lambda r: f"₹{r['Cost']/r['Clicks']:.2f}" if r["Clicks"] > 0 else "-", axis=1)
+                match_summary["Cost"] = match_summary["Cost"].apply(lambda x: f"₹{x:,.2f}")
                 st.dataframe(match_summary, use_container_width=True, hide_index=True)
             else:
                 st.info("No keyword data found for this date range.")
@@ -452,8 +453,8 @@ try:
 
                 display_st = filtered_st.copy()
                 display_st["CTR"] = display_st["CTR"].apply(lambda x: f"{x:.2%}")
-                display_st["Cost"] = display_st["Cost"].apply(lambda x: f"${x:,.2f}")
-                display_st["CPA"] = display_st["CPA"].apply(lambda x: f"${x:.2f}" if x > 0 else "-")
+                display_st["Cost"] = display_st["Cost"].apply(lambda x: f"₹{x:,.2f}")
+                display_st["CPA"] = display_st["CPA"].apply(lambda x: f"₹{x:.2f}" if x > 0 else "-")
                 st.dataframe(display_st, use_container_width=True, hide_index=True)
 
                 converting = df_st[df_st["Conversions"] > 0].sort_values("Conversions", ascending=False).head(10)
@@ -462,7 +463,7 @@ try:
                     for _, row in converting.iterrows():
                         st.markdown(
                             f'<div class="good-box"><strong>{row["Search Term"]}</strong> — '
-                            f'{row["Conversions"]:.0f} conversions, ${row["Cost"]:,.2f} spend, '
+                            f'{row["Conversions"]:.0f} conversions, ₹{row["Cost"]:,.2f} spend, '
                             f'{row["CTR"]:.2%} CTR</div>',
                             unsafe_allow_html=True,
                         )
@@ -483,14 +484,14 @@ try:
                     pct_wasted = (total_wasted / df_st["Cost"].sum() * 100) if df_st["Cost"].sum() > 0 else 0
 
                     wc1, wc2, wc3 = st.columns(3)
-                    wc1.metric("Wasted Spend", f"${total_wasted:,.2f}")
+                    wc1.metric("Wasted Spend", f"₹{total_wasted:,.2f}")
                     wc2.metric("Wasted Clicks", f"{total_wasted_clicks:,}")
                     wc3.metric("% of Total Spend", f"{pct_wasted:.1f}%")
 
                     st.markdown("")
 
                     if pct_wasted > 30:
-                        st.markdown(f'<div class="bad-box">🚨 <strong>{pct_wasted:.0f}% of your spend</strong> goes to non-converting search terms. Adding negative keywords could save you <strong>${total_wasted:,.2f}</strong>.</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="bad-box">🚨 <strong>{pct_wasted:.0f}% of your spend</strong> goes to non-converting search terms. Adding negative keywords could save you <strong>₹{total_wasted:,.2f}</strong>.</div>', unsafe_allow_html=True)
                     elif pct_wasted > 15:
                         st.markdown(f'<div class="insight-box">⚠️ <strong>{pct_wasted:.0f}% of your spend</strong> goes to non-converting terms. Review the list below for potential negative keywords.</div>', unsafe_allow_html=True)
                     else:
@@ -502,7 +503,7 @@ try:
 
                     display_wasted = wasted.head(20).copy()
                     display_wasted["CTR"] = display_wasted["CTR"].apply(lambda x: f"{x:.2%}")
-                    display_wasted["Cost"] = display_wasted["Cost"].apply(lambda x: f"${x:,.2f}")
+                    display_wasted["Cost"] = display_wasted["Cost"].apply(lambda x: f"₹{x:,.2f}")
                     display_wasted = display_wasted.drop(columns=["CPA"])
                     st.dataframe(display_wasted, use_container_width=True, hide_index=True)
                 else:
@@ -532,12 +533,12 @@ try:
                 if not no_conv.empty:
                     wasted_amount = no_conv["Cost"].sum()
                     kw_list = ", ".join(no_conv["Keyword"].head(3).tolist())
-                    tips.append(("bad-box", "🔥", "Money Burning Keywords", f"Keywords with clicks but zero conversions: <strong>{kw_list}</strong>. Total spend: <strong>${wasted_amount:,.2f}</strong>. Consider pausing these or improving landing pages."))
+                    tips.append(("bad-box", "🔥", "Money Burning Keywords", f"Keywords with clicks but zero conversions: <strong>{kw_list}</strong>. Total spend: <strong>₹{wasted_amount:,.2f}</strong>. Consider pausing these or improving landing pages."))
 
                 top_perf = df_kw[(df_kw["Conversions"] > 0)].sort_values("CPA")
                 if not top_perf.empty:
                     best = top_perf.iloc[0]
-                    tips.append(("good-box", "🏆", "Best Performer", f"<strong>{best['Keyword']}</strong> has the lowest cost per conversion at <strong>${best['CPA']:.2f}</strong>. Consider increasing budget for this keyword."))
+                    tips.append(("good-box", "🏆", "Best Performer", f"<strong>{best['Keyword']}</strong> has the lowest cost per conversion at <strong>₹{best['CPA']:.2f}</strong>. Consider increasing budget for this keyword."))
 
                 broad_kw = df_kw[df_kw["Match Type"] == "BROAD"]
                 if not broad_kw.empty and len(broad_kw) > len(df_kw) * 0.5:
@@ -837,7 +838,7 @@ try:
                     display_kw_is["Abs Top IS"] = display_kw_is["Abs Top IS"].apply(lambda x: f"{x:.1%}")
                     display_kw_is["Lost IS (Rank)"] = display_kw_is["Lost IS (Rank)"].apply(lambda x: f"{x:.1%}")
                     display_kw_is["CTR"] = display_kw_is["CTR"].apply(lambda x: f"{x:.2%}")
-                    display_kw_is["Cost"] = display_kw_is["Cost"].apply(lambda x: f"${x:,.2f}")
+                    display_kw_is["Cost"] = display_kw_is["Cost"].apply(lambda x: f"₹{x:,.2f}")
                     st.dataframe(display_kw_is, use_container_width=True, hide_index=True)
 
                     st.subheader("Impression Share by Keyword")
@@ -1067,7 +1068,7 @@ try:
                                 st.markdown(
                                     f'<div class="good-box">🎯 <strong>{row["Search Term"]}</strong> — '
                                     f'{row["Conversions"]:.0f} conversions, {row["Clicks"]} clicks, '
-                                    f'{row["CTR"]:.2%} CTR, ${row["Cost"]:,.2f} cost '
+                                    f'{row["CTR"]:.2%} CTR, ₹{row["Cost"]:,.2f} cost '
                                     f'(in {row["Campaign"]})</div>',
                                     unsafe_allow_html=True,
                                 )
@@ -1080,7 +1081,7 @@ try:
                             st.caption("Good click volume and CTR. Add as keywords and monitor for conversions.")
                             display_click = click_opps.copy()
                             display_click["CTR"] = display_click["CTR"].apply(lambda x: f"{x:.2%}")
-                            display_click["Cost"] = display_click["Cost"].apply(lambda x: f"${x:,.2f}")
+                            display_click["Cost"] = display_click["Cost"].apply(lambda x: f"₹{x:,.2f}")
                             display_click = display_click.drop(columns=["CPA"])
                             st.dataframe(display_click, use_container_width=True, hide_index=True)
                     else:
@@ -1101,8 +1102,8 @@ try:
 
                     display_opps = filtered_opps.copy()
                     display_opps["CTR"] = display_opps["CTR"].apply(lambda x: f"{x:.2%}")
-                    display_opps["Cost"] = display_opps["Cost"].apply(lambda x: f"${x:,.2f}")
-                    display_opps["CPA"] = display_opps["CPA"].apply(lambda x: f"${x:.2f}" if x > 0 else "-")
+                    display_opps["Cost"] = display_opps["Cost"].apply(lambda x: f"₹{x:,.2f}")
+                    display_opps["CPA"] = display_opps["CPA"].apply(lambda x: f"₹{x:.2f}" if x > 0 else "-")
                     st.dataframe(display_opps, use_container_width=True, hide_index=True)
                 else:
                     st.info("All search terms are already targeted as keywords. Great coverage!")
@@ -1113,8 +1114,8 @@ try:
                     st.markdown("")
                     display_targeted = df_targeted.copy()
                     display_targeted["CTR"] = display_targeted["CTR"].apply(lambda x: f"{x:.2%}")
-                    display_targeted["Cost"] = display_targeted["Cost"].apply(lambda x: f"${x:,.2f}")
-                    display_targeted["CPA"] = display_targeted["CPA"].apply(lambda x: f"${x:.2f}" if x > 0 else "-")
+                    display_targeted["Cost"] = display_targeted["Cost"].apply(lambda x: f"₹{x:,.2f}")
+                    display_targeted["CPA"] = display_targeted["CPA"].apply(lambda x: f"₹{x:.2f}" if x > 0 else "-")
                     st.dataframe(display_targeted, use_container_width=True, hide_index=True)
                 else:
                     st.info("No matched search terms found.")
