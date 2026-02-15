@@ -561,7 +561,7 @@ try:
     # =============================================
     with tab_competitors:
 
-        st.markdown("Analyze your competitive position using **keyword-level impression share**.")
+        st.markdown("Analyze your competitive position using **keyword-level impression share** and **auction insights**.")
         st.markdown("")
 
         try:
@@ -617,11 +617,203 @@ try:
                 df_kw_visible = pd.DataFrame()
 
             # Sub-tabs
-            comp_tab1, comp_tab2, comp_tab3 = st.tabs([
+            comp_tab_auction, comp_tab1, comp_tab2, comp_tab3 = st.tabs([
+                "🔍 Auction Insights",
                 "📊 Impression Share by Keyword",
                 "⚡ Competitive Gaps",
                 "🎯 Where to Invest",
             ])
+
+            # ---- Auction Insights (CSV Upload) ----
+            with comp_tab_auction:
+                st.markdown("Upload your **Auction Insights** report from Google Ads to see **who your competitors are** and how you stack up against them.")
+                st.markdown("")
+
+                with st.expander("📥 How to download Auction Insights from Google Ads", expanded=True):
+                    st.markdown("""
+1. Go to [ads.google.com](https://ads.google.com)
+2. Click **Campaigns** in the left menu
+3. Select the campaign(s) you want to analyze
+4. Click the **Auction insights** tab at the top
+5. Set your desired date range
+6. Click the **Download** button (⬇) → choose **CSV** or **.csv**
+7. Upload the file below
+                    """)
+
+                uploaded_file = st.file_uploader("Upload Auction Insights CSV", type=["csv"], key="auction_csv")
+
+                if uploaded_file is not None:
+                    try:
+                        df_auction = pd.read_csv(uploaded_file)
+
+                        # Find the domain column
+                        domain_col = None
+                        for col in df_auction.columns:
+                            col_lower = col.lower()
+                            if 'domain' in col_lower or 'display url' in col_lower or 'display_url' in col_lower:
+                                domain_col = col
+                                break
+                        if domain_col is None:
+                            domain_col = df_auction.columns[0]
+
+                        # Find percentage metric columns (everything except domain)
+                        metric_cols = [c for c in df_auction.columns if c != domain_col]
+
+                        # Parse percentage values
+                        for col in metric_cols:
+                            df_auction[col] = (
+                                df_auction[col]
+                                .astype(str)
+                                .str.replace('%', '', regex=False)
+                                .str.replace('--', '', regex=False)
+                                .str.replace('< 10', '5', regex=False)
+                                .str.strip()
+                            )
+                            df_auction[col] = pd.to_numeric(df_auction[col], errors='coerce')
+
+                        # Separate "You" row from competitors
+                        you_mask = df_auction[domain_col].str.lower().str.strip().isin(['you', 'your', 'me'])
+                        you_data = df_auction[you_mask]
+                        df_competitors = df_auction[~you_mask].dropna(subset=[domain_col])
+                        df_competitors = df_competitors[df_competitors[domain_col].str.strip() != '']
+
+                        if df_competitors.empty:
+                            st.warning("No competitor data found in the uploaded file. Make sure it's an Auction Insights CSV from Google Ads.")
+                        else:
+                            # Rename domain column for display
+                            df_competitors = df_competitors.rename(columns={domain_col: "Competitor"})
+                            if not you_data.empty:
+                                you_data = you_data.rename(columns={domain_col: "Competitor"})
+                                you_data["Competitor"] = "You (Your Ads)"
+
+                            # Detect which metric columns exist
+                            is_col = None
+                            overlap_col = None
+                            pos_above_col = None
+                            top_col = None
+                            abs_top_col = None
+                            outranking_col = None
+
+                            for col in df_competitors.columns:
+                                col_lower = col.lower()
+                                if col == "Competitor":
+                                    continue
+                                if 'outranking' in col_lower:
+                                    outranking_col = col
+                                elif 'overlap' in col_lower:
+                                    overlap_col = col
+                                elif 'position above' in col_lower or 'position_above' in col_lower:
+                                    pos_above_col = col
+                                elif 'abs' in col_lower and 'top' in col_lower:
+                                    abs_top_col = col
+                                elif 'top' in col_lower and 'page' in col_lower:
+                                    top_col = col
+                                elif 'impression' in col_lower and 'share' in col_lower:
+                                    is_col = col
+
+                            # KPIs
+                            num_competitors = len(df_competitors)
+                            ac1, ac2, ac3 = st.columns(3)
+                            ac1.metric("Competitors Found", num_competitors)
+                            if is_col and not df_competitors[is_col].isna().all():
+                                avg_comp_is = df_competitors[is_col].mean()
+                                ac2.metric("Avg Competitor IS", f"{avg_comp_is:.1f}%")
+                                if not you_data.empty and not you_data[is_col].isna().all():
+                                    your_is = you_data[is_col].iloc[0]
+                                    ac3.metric("Your Impression Share", f"{your_is:.1f}%")
+                            st.markdown("")
+
+                            # Your position vs competitors
+                            if not you_data.empty and is_col:
+                                your_is_val = you_data[is_col].iloc[0] if not you_data[is_col].isna().all() else None
+                                if your_is_val is not None:
+                                    beating_you = df_competitors[df_competitors[is_col] > your_is_val]
+                                    you_beating = df_competitors[df_competitors[is_col] <= your_is_val]
+                                    if not beating_you.empty:
+                                        names = ", ".join(beating_you["Competitor"].head(5).tolist())
+                                        st.markdown(f'<div class="bad-box">🥊 <strong>{len(beating_you)} competitor(s)</strong> have higher impression share than you: <strong>{names}</strong></div>', unsafe_allow_html=True)
+                                    if not you_beating.empty:
+                                        names = ", ".join(you_beating["Competitor"].head(5).tolist())
+                                        st.markdown(f'<div class="good-box">✅ You\'re <strong>ahead of {len(you_beating)} competitor(s)</strong>: <strong>{names}</strong></div>', unsafe_allow_html=True)
+                                    st.markdown("")
+
+                            # Biggest threat
+                            if overlap_col and not df_competitors[overlap_col].isna().all():
+                                top_overlap = df_competitors.sort_values(overlap_col, ascending=False).iloc[0]
+                                st.markdown(f'<div class="insight-box">🎯 <strong>Biggest competitor:</strong> <strong>{top_overlap["Competitor"]}</strong> — overlaps with your ads {top_overlap[overlap_col]:.1f}% of the time</div>', unsafe_allow_html=True)
+                                st.markdown("")
+
+                            # Full competitor table
+                            st.subheader("All Competitors")
+                            display_auction = df_competitors.copy()
+                            if not you_data.empty:
+                                display_auction = pd.concat([you_data, display_auction], ignore_index=True)
+
+                            # Format percentage columns for display
+                            for col in display_auction.columns:
+                                if col != "Competitor":
+                                    display_auction[col] = display_auction[col].apply(
+                                        lambda x: f"{x:.1f}%" if pd.notna(x) else "-"
+                                    )
+                            st.dataframe(display_auction, use_container_width=True, hide_index=True)
+
+                            # Bar chart - Impression Share comparison
+                            if is_col:
+                                st.subheader("Impression Share Comparison")
+                                chart_data = df_competitors[["Competitor", is_col]].dropna().copy()
+                                if not you_data.empty and not you_data[is_col].isna().all():
+                                    you_row = pd.DataFrame({"Competitor": ["You"], is_col: [you_data[is_col].iloc[0]]})
+                                    chart_data = pd.concat([you_row, chart_data], ignore_index=True)
+                                chart_data = chart_data.set_index("Competitor").sort_values(is_col, ascending=True)
+                                st.bar_chart(chart_data)
+
+                            # Overlap Rate chart
+                            if overlap_col and not df_competitors[overlap_col].isna().all():
+                                st.subheader("Overlap Rate (how often you compete)")
+                                overlap_chart = df_competitors[["Competitor", overlap_col]].dropna().set_index("Competitor").sort_values(overlap_col, ascending=True)
+                                st.bar_chart(overlap_chart)
+
+                            # Position Above Rate chart
+                            if pos_above_col and not df_competitors[pos_above_col].isna().all():
+                                st.subheader("Position Above Rate (how often they outrank you)")
+                                pos_chart = df_competitors[["Competitor", pos_above_col]].dropna().set_index("Competitor").sort_values(pos_above_col, ascending=True)
+                                st.bar_chart(pos_chart)
+
+                            # Per-competitor analysis
+                            st.subheader("Competitor Deep Dive")
+                            for _, comp in df_competitors.iterrows():
+                                name = comp["Competitor"]
+                                details = []
+                                if is_col and pd.notna(comp.get(is_col)):
+                                    details.append(f"IS: {comp[is_col]:.1f}%")
+                                if overlap_col and pd.notna(comp.get(overlap_col)):
+                                    details.append(f"Overlap: {comp[overlap_col]:.1f}%")
+                                if pos_above_col and pd.notna(comp.get(pos_above_col)):
+                                    details.append(f"Above you: {comp[pos_above_col]:.1f}%")
+                                if outranking_col and pd.notna(comp.get(outranking_col)):
+                                    details.append(f"Outranking: {comp[outranking_col]:.1f}%")
+
+                                detail_str = " | ".join(details) if details else "No data"
+
+                                # Determine threat level
+                                threat = "insight-box"
+                                if pos_above_col and pd.notna(comp.get(pos_above_col)) and comp[pos_above_col] > 50:
+                                    threat = "bad-box"
+                                elif is_col and pd.notna(comp.get(is_col)) and comp[is_col] > 40:
+                                    threat = "insight-box"
+                                else:
+                                    threat = "good-box"
+
+                                st.markdown(
+                                    f'<div class="{threat}">🏢 <strong>{name}</strong> — {detail_str}</div>',
+                                    unsafe_allow_html=True,
+                                )
+
+                    except Exception as upload_err:
+                        st.error(f"Error reading file: {upload_err}")
+                        st.caption("Make sure you uploaded a valid Auction Insights CSV from Google Ads.")
+                else:
+                    st.info("Upload your Auction Insights CSV above to see competitor analysis.")
 
             # ---- Keyword Impression Share ----
             with comp_tab1:
