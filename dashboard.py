@@ -1159,6 +1159,7 @@ try:
                         landing_page_view.unexpanded_final_url,
                         campaign.name,
                         campaign.status,
+                        ad_group.name,
                         metrics.clicks,
                         metrics.impressions,
                         metrics.cost_micros,
@@ -1168,18 +1169,22 @@ try:
                     WHERE {date_clause}
                         {status_clause}
                     ORDER BY metrics.cost_micros DESC
-                    LIMIT 50
+                    LIMIT 100
                 """
                 rows_lp_ads = fetch_data(query_lp_ads)
 
                 ads_lp_data = []
                 for row in rows_lp_ads:
+                    if selected_campaigns and row.campaign.name not in selected_campaigns:
+                        continue
                     url = row.landing_page_view.unexpanded_final_url
                     cost = row.metrics.cost_micros / 1_000_000
                     conversions = row.metrics.conversions
                     path = urlparse(url).path or "/"
                     ads_lp_data.append({
-                        "URL": url,
+                        "Landing Page": url,
+                        "Campaign": row.campaign.name,
+                        "Ad Group": row.ad_group.name,
                         "Path": path,
                         "Ad Clicks": row.metrics.clicks,
                         "Ad Impressions": row.metrics.impressions,
@@ -1294,11 +1299,11 @@ try:
                         col1, col2 = st.columns(2)
                         with col1:
                             st.subheader("Ad Spend by Landing Page")
-                            chart_spend = df_ads_lp[["URL", "Ad Spend"]].head(15).set_index("URL").sort_values("Ad Spend")
+                            chart_spend = df_ads_lp[["Landing Page", "Ad Spend"]].head(15).set_index("Landing Page").sort_values("Ad Spend")
                             st.bar_chart(chart_spend)
                         with col2:
                             st.subheader("Bounce Rate by Landing Page")
-                            chart_bounce = df_ads_lp[df_ads_lp["Bounce Rate"] > 0][["URL", "Bounce Rate"]].head(15).set_index("URL").sort_values("Bounce Rate")
+                            chart_bounce = df_ads_lp[df_ads_lp["Bounce Rate"] > 0][["Landing Page", "Bounce Rate"]].head(15).set_index("Landing Page").sort_values("Bounce Rate")
                             if not chart_bounce.empty:
                                 st.bar_chart(chart_bounce)
                             else:
@@ -1329,7 +1334,8 @@ try:
                             for _, row in wasted.iterrows():
                                 severity = "bad-box" if row["Bounce Rate"] > 0.70 else "insight-box"
                                 st.markdown(
-                                    f'<div class="{severity}">💸 <strong>{row["URL"]}</strong> — '
+                                    f'<div class="{severity}">💸 <strong>{row["Landing Page"]}</strong><br>'
+                                    f'<small>Campaign: {row["Campaign"]} | Ad Group: {row["Ad Group"]}</small><br>'
                                     f'Spend: ₹{row["Ad Spend"]:,.2f} | '
                                     f'{row["Ad Clicks"]:,} clicks | '
                                     f'Bounce: {row["Bounce Rate"]:.0%} | '
@@ -1358,7 +1364,8 @@ try:
                                 dur_str = f"{row['Avg Duration (s)']:.0f}s" if row["Avg Duration (s)"] > 0 else "no GA data"
                                 bounce_str = f"{row['Bounce Rate']:.0%}" if row["Bounce Rate"] > 0 else "no GA data"
                                 st.markdown(
-                                    f'<div class="bad-box">🔥 <strong>{row["URL"]}</strong> — '
+                                    f'<div class="bad-box">🔥 <strong>{row["Landing Page"]}</strong><br>'
+                                    f'<small>Campaign: {row["Campaign"]} | Ad Group: {row["Ad Group"]}</small><br>'
                                     f'Spend: ₹{row["Ad Spend"]:,.2f} | '
                                     f'{row["Ad Clicks"]:,} clicks | '
                                     f'Bounce: {bounce_str} | Duration: {dur_str}</div>',
@@ -1376,14 +1383,18 @@ try:
                         if not converting_pages.empty:
                             best = converting_pages.iloc[0]
                             tips.append(("good-box", "🚀", "Scale Your Best Landing Page",
-                                f"<strong>{best['URL']}</strong> has the lowest CPA at <strong>₹{best['Ad CPA']:.2f}</strong> "
+                                f"<strong>{best['Landing Page']}</strong> "
+                                f"(Campaign: {best['Campaign']} → {best['Ad Group']}) "
+                                f"has the lowest CPA at <strong>₹{best['Ad CPA']:.2f}</strong> "
                                 f"with {best['Ad Conversions']:.0f} conversions. Send more ad traffic here."))
 
                         # High bounce + high spend
                         if not wasted.empty:
                             worst = wasted.iloc[0]
                             tips.append(("bad-box", "🚪", "Fix or Replace Your Leakiest Page",
-                                f"<strong>{worst['URL']}</strong> — you're spending <strong>₹{worst['Ad Spend']:,.2f}</strong> "
+                                f"<strong>{worst['Landing Page']}</strong> "
+                                f"(Campaign: {worst['Campaign']} → {worst['Ad Group']}) — "
+                                f"you're spending <strong>₹{worst['Ad Spend']:,.2f}</strong> "
                                 f"but <strong>{worst['Bounce Rate']:.0%}</strong> of visitors bounce. "
                                 f"Either improve this page (speed, content, CTA) or redirect ads to a better-performing page."))
 
@@ -1396,7 +1407,9 @@ try:
                         if not engaged_no_conv.empty:
                             page = engaged_no_conv.iloc[0]
                             tips.append(("insight-box", "🤔", "Engaged Visitors Not Converting",
-                                f"<strong>{page['URL']}</strong> — visitors spend {page['Avg Duration (s)']:.0f}s on page "
+                                f"<strong>{page['Landing Page']}</strong> "
+                                f"(Campaign: {page['Campaign']} → {page['Ad Group']}) — "
+                                f"visitors spend {page['Avg Duration (s)']:.0f}s on page "
                                 f"(good engagement) but aren't converting. The CTA may be weak or hard to find. "
                                 f"Try A/B testing the page with a stronger call-to-action."))
 
@@ -1409,7 +1422,9 @@ try:
                         if not mismatch.empty:
                             page = mismatch.iloc[0]
                             tips.append(("bad-box", "⚡", "Ad-to-Page Mismatch",
-                                f"<strong>{page['URL']}</strong> — visitors leave within {page['Avg Duration (s)']:.0f}s despite "
+                                f"<strong>{page['Landing Page']}</strong> "
+                                f"(Campaign: {page['Campaign']} → {page['Ad Group']}) — "
+                                f"visitors leave within {page['Avg Duration (s)']:.0f}s despite "
                                 f"{page['Ad Clicks']:,} ad clicks. Your ad copy may be promising something the landing page doesn't deliver. "
                                 f"Align your ad messaging with the page content."))
 
@@ -1422,7 +1437,7 @@ try:
                                 if cheapest_converting is not None and most_expensive["Cost per Session"] > cheapest_converting["Cost per Session"] * 2:
                                     tips.append(("insight-box", "💰", "Cost Efficiency Gap",
                                         f"Your most expensive page costs <strong>₹{most_expensive['Cost per Session']:.2f}/session</strong> "
-                                        f"(<strong>{most_expensive['URL']}</strong>) while your cheapest converting page is only "
+                                        f"(<strong>{most_expensive['Landing Page']}</strong>) while your cheapest converting page is only "
                                         f"<strong>₹{cheapest_converting['Cost per Session']:.2f}/session</strong>. Consider shifting budget."))
 
                         if tips:
