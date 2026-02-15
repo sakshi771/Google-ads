@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
-from config import get_google_ads_client, get_customer_id, get_ga4_client, get_ga4_property_id, get_gemini_api_key
+from config import get_google_ads_client, get_customer_id, get_ga4_client, get_ga4_property_id, get_openai_api_key
 
 st.set_page_config(page_title="Google Ads Dashboard", page_icon="📊", layout="wide")
 
@@ -1467,22 +1467,21 @@ try:
         st.markdown("Ask questions about your Google Ads data and get **AI-powered answers**.")
         st.markdown("")
 
-        gemini_key = get_gemini_api_key()
+        openai_key = get_openai_api_key()
 
-        if not gemini_key:
-            st.warning("Gemini API key not configured. Add `GEMINI_API_KEY` to your .env or Streamlit secrets.")
+        if not openai_key:
+            st.warning("OpenAI API key not configured. Add `OPENAI_API_KEY` to your .env or Streamlit secrets.")
             st.markdown("""
-**How to get a free Gemini API key:**
-1. Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-2. Click **Create API Key**
+**How to get your OpenAI API key:**
+1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+2. Click **Create new secret key**
 3. Copy the key and add it to your secrets
             """)
         else:
             try:
-                import google.generativeai as genai
+                from openai import OpenAI
 
-                genai.configure(api_key=gemini_key)
-                model = genai.GenerativeModel("gemini-2.0-flash")
+                client = OpenAI(api_key=openai_key)
 
                 # Build context from all loaded data
                 context_parts = []
@@ -1587,18 +1586,18 @@ Here is the current account data:
                     with st.chat_message("user"):
                         st.markdown(prompt)
 
-                    # Build conversation for Gemini
-                    messages_for_ai = [system_prompt + "\n\n"]
+                    # Build messages for OpenAI
+                    messages = [{"role": "system", "content": system_prompt}]
                     for msg in st.session_state.chat_history:
-                        role_label = "User" if msg["role"] == "user" else "Assistant"
-                        messages_for_ai.append(f"{role_label}: {msg['content']}")
-
-                    full_prompt = "\n".join(messages_for_ai)
+                        messages.append({"role": msg["role"], "content": msg["content"]})
 
                     with st.chat_message("assistant"):
                         with st.spinner("Thinking..."):
-                            response = model.generate_content(full_prompt)
-                            answer = response.text
+                            response = client.chat.completions.create(
+                                model="gpt-4o-mini",
+                                messages=messages,
+                            )
+                            answer = response.choices[0].message.content
                         st.markdown(answer)
 
                     st.session_state.chat_history.append({"role": "assistant", "content": answer})
@@ -1610,7 +1609,7 @@ Here is the current account data:
                         st.rerun()
 
             except ImportError:
-                st.warning("Gemini library not installed. Run: `pip install google-generativeai`")
+                st.warning("OpenAI library not installed. Run: `pip install openai`")
             except Exception as chat_error:
                 st.error(f"Error with AI chat: {chat_error}")
                 with st.expander("Error details"):
