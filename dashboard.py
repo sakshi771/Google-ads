@@ -1157,6 +1157,8 @@ try:
                 query_lp_ads = f"""
                     SELECT
                         landing_page_view.unexpanded_final_url,
+                        campaign.name,
+                        campaign.status,
                         metrics.clicks,
                         metrics.impressions,
                         metrics.cost_micros,
