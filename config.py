@@ -53,3 +53,8 @@ def get_ga4_client():
 def get_ga4_property_id():
     """Return the GA4 property ID."""
     return _get_secret("GA4_PROPERTY_ID")
+
+
+def get_gemini_api_key():
+    """Return the Gemini API key."""
+    return _get_secret("GEMINI_API_KEY")

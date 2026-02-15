@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
-from config import get_google_ads_client, get_customer_id, get_ga4_client, get_ga4_property_id
+from config import get_google_ads_client, get_customer_id, get_ga4_client, get_ga4_property_id, get_gemini_api_key
 
 st.set_page_config(page_title="Google Ads Dashboard", page_icon="📊", layout="wide")
 
@@ -191,13 +191,14 @@ try:
     # =============================================
     # TABS
     # =============================================
-    tab_overview, tab_trends, tab_kw_analysis, tab_competitors, tab_opportunities, tab_landing = st.tabs([
+    tab_overview, tab_trends, tab_kw_analysis, tab_competitors, tab_opportunities, tab_landing, tab_chat = st.tabs([
         "🏠 Overview",
         "📈 Daily Trends",
         "🔍 Keyword Analysis",
         "🏆 Competitors",
         "💎 Keyword Opportunities",
         "🌐 Landing Pages",
+        "💬 Ask AI",
     ])
 
     # =============================================
@@ -1457,6 +1458,163 @@ try:
             with st.expander("Error details"):
                 st.code(str(ga_error))
             st.caption("Make sure your refresh token has Google Analytics permissions. You may need to re-run `python get_refresh_token.py` to re-authorize.")
+
+    # =============================================
+    # TAB 7: ASK AI (Chat with your data)
+    # =============================================
+    with tab_chat:
+
+        st.markdown("Ask questions about your Google Ads data and get **AI-powered answers**.")
+        st.markdown("")
+
+        gemini_key = get_gemini_api_key()
+
+        if not gemini_key:
+            st.warning("Gemini API key not configured. Add `GEMINI_API_KEY` to your .env or Streamlit secrets.")
+            st.markdown("""
+**How to get a free Gemini API key:**
+1. Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+2. Click **Create API Key**
+3. Copy the key and add it to your secrets
+            """)
+        else:
+            try:
+                import google.generativeai as genai
+
+                genai.configure(api_key=gemini_key)
+                model = genai.GenerativeModel("gemini-1.5-flash")
+
+                # Build context from all loaded data
+                context_parts = []
+                context_parts.append(f"Date range: {start_date} to {end_date}")
+
+                # Campaign summary
+                if not df_campaigns.empty:
+                    context_parts.append(f"\n--- CAMPAIGN DATA ({len(df_campaigns)} campaigns) ---")
+                    for _, row in df_campaigns.iterrows():
+                        context_parts.append(
+                            f"Campaign: {row['Campaign']} | Status: {row['Status']} | "
+                            f"Spend: ₹{row['Cost']:,.2f} | Clicks: {row['Clicks']:,} | "
+                            f"Impressions: {row['Impressions']:,} | CTR: {row['CTR']:.2%} | "
+                            f"CPC: ₹{row['Avg CPC']:.2f} | Conversions: {row['Conversions']:.0f} | "
+                            f"CPA: ₹{row['Cost/Conv']:.2f}"
+                        )
+                    context_parts.append(
+                        f"\nTOTALS: Spend=₹{df_campaigns['Cost'].sum():,.2f}, "
+                        f"Clicks={df_campaigns['Clicks'].sum():,}, "
+                        f"Impressions={df_campaigns['Impressions'].sum():,}, "
+                        f"Conversions={df_campaigns['Conversions'].sum():.0f}"
+                    )
+
+                # Keyword data
+                try:
+                    if not df_kw.empty:
+                        context_parts.append(f"\n--- KEYWORD DATA (top {len(df_kw)} keywords) ---")
+                        for _, row in df_kw.head(30).iterrows():
+                            context_parts.append(
+                                f"Keyword: {row['Keyword']} | Match: {row['Match Type']} | "
+                                f"Campaign: {row['Campaign']} | Clicks: {row['Clicks']} | "
+                                f"CTR: {row['CTR']:.2%} | CPC: ₹{row['CPC']:.2f} | "
+                                f"Cost: ₹{row['Cost']:,.2f} | Conversions: {row['Conversions']:.0f}"
+                            )
+                except NameError:
+                    pass
+
+                # Search term data
+                try:
+                    if not df_st.empty:
+                        context_parts.append(f"\n--- SEARCH TERM DATA (top {len(df_st)} terms) ---")
+                        for _, row in df_st.head(30).iterrows():
+                            context_parts.append(
+                                f"Search Term: {row['Search Term']} | Campaign: {row['Campaign']} | "
+                                f"Clicks: {row['Clicks']} | CTR: {row['CTR']:.2%} | "
+                                f"Cost: ₹{row['Cost']:,.2f} | Conversions: {row['Conversions']:.0f}"
+                            )
+                except NameError:
+                    pass
+
+                # Landing page data
+                try:
+                    if not df_ads_lp.empty:
+                        context_parts.append(f"\n--- LANDING PAGE DATA ({len(df_ads_lp)} pages) ---")
+                        for _, row in df_ads_lp.head(20).iterrows():
+                            context_parts.append(
+                                f"URL: {row['Landing Page']} | Campaign: {row['Campaign']} | "
+                                f"Ad Group: {row['Ad Group']} | Spend: ₹{row['Ad Spend']:,.2f} | "
+                                f"Clicks: {row['Ad Clicks']} | Conversions: {row['Ad Conversions']:.0f} | "
+                                f"Bounce Rate: {row.get('Bounce Rate', 0):.1%}"
+                            )
+                except NameError:
+                    pass
+
+                data_context = "\n".join(context_parts)
+
+                system_prompt = f"""You are a Google Ads analyst assistant. You answer questions about the user's Google Ads account data.
+Be concise, specific, and actionable. Use the actual numbers from the data. Currency is INR (₹).
+If the user asks something not covered by the data, say so honestly.
+
+Here is the current account data:
+{data_context}"""
+
+                # Initialize chat history
+                if "chat_history" not in st.session_state:
+                    st.session_state.chat_history = []
+
+                # Display chat history
+                for msg in st.session_state.chat_history:
+                    with st.chat_message(msg["role"]):
+                        st.markdown(msg["content"])
+
+                # Suggested questions
+                if not st.session_state.chat_history:
+                    st.markdown("**Try asking:**")
+                    suggestions = [
+                        "Which campaign is performing best?",
+                        "Where am I wasting the most money?",
+                        "What keywords should I pause?",
+                        "Give me a summary of my account performance",
+                        "Which landing pages need improvement?",
+                    ]
+                    cols = st.columns(len(suggestions))
+                    for i, suggestion in enumerate(suggestions):
+                        if cols[i].button(suggestion, key=f"suggest_{i}"):
+                            st.session_state.chat_history.append({"role": "user", "content": suggestion})
+                            st.rerun()
+
+                # Chat input
+                if prompt := st.chat_input("Ask about your ads data..."):
+                    st.session_state.chat_history.append({"role": "user", "content": prompt})
+                    with st.chat_message("user"):
+                        st.markdown(prompt)
+
+                    # Build conversation for Gemini
+                    messages_for_ai = [system_prompt + "\n\n"]
+                    for msg in st.session_state.chat_history:
+                        role_label = "User" if msg["role"] == "user" else "Assistant"
+                        messages_for_ai.append(f"{role_label}: {msg['content']}")
+
+                    full_prompt = "\n".join(messages_for_ai)
+
+                    with st.chat_message("assistant"):
+                        with st.spinner("Thinking..."):
+                            response = model.generate_content(full_prompt)
+                            answer = response.text
+                        st.markdown(answer)
+
+                    st.session_state.chat_history.append({"role": "assistant", "content": answer})
+
+                # Clear chat button
+                if st.session_state.chat_history:
+                    if st.button("🗑️ Clear chat"):
+                        st.session_state.chat_history = []
+                        st.rerun()
+
+            except ImportError:
+                st.warning("Gemini library not installed. Run: `pip install google-generativeai`")
+            except Exception as chat_error:
+                st.error(f"Error with AI chat: {chat_error}")
+                with st.expander("Error details"):
+                    st.code(str(chat_error))
 
 except Exception as e:
     st.error(f"Error connecting to Google Ads: {e}")
