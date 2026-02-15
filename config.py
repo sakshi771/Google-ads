@@ -18,24 +18,22 @@ def _get_secret(key):
     return val.strip() if val else val
 
 
-def get_google_ads_client():
-    """Create and return an authenticated Google Ads API client."""
-    client_id = _get_secret("GOOGLE_ADS_CLIENT_ID")
-    client_secret = _get_secret("GOOGLE_ADS_CLIENT_SECRET")
-    refresh_token = _get_secret("GOOGLE_ADS_REFRESH_TOKEN")
-    developer_token = _get_secret("GOOGLE_ADS_DEVELOPER_TOKEN")
-
-    oauth_creds = Credentials(
+def _get_oauth_creds():
+    """Build OAuth credentials reusable by both Google Ads and GA4."""
+    return Credentials(
         token=None,
-        refresh_token=refresh_token,
+        refresh_token=_get_secret("GOOGLE_ADS_REFRESH_TOKEN"),
         token_uri="https://oauth2.googleapis.com/token",
-        client_id=client_id,
-        client_secret=client_secret,
+        client_id=_get_secret("GOOGLE_ADS_CLIENT_ID"),
+        client_secret=_get_secret("GOOGLE_ADS_CLIENT_SECRET"),
     )
 
+
+def get_google_ads_client():
+    """Create and return an authenticated Google Ads API client."""
     return GoogleAdsClient(
-        credentials=oauth_creds,
-        developer_token=developer_token,
+        credentials=_get_oauth_creds(),
+        developer_token=_get_secret("GOOGLE_ADS_DEVELOPER_TOKEN"),
         use_proto_plus=True,
     )
 
@@ -43,3 +41,15 @@ def get_google_ads_client():
 def get_customer_id():
     """Return the Google Ads customer ID (without dashes)."""
     return _get_secret("GOOGLE_ADS_CUSTOMER_ID")
+
+
+def get_ga4_client():
+    """Create and return an authenticated GA4 Data API client."""
+    from google.analytics.data_v1beta import BetaAnalyticsDataClient
+
+    return BetaAnalyticsDataClient(credentials=_get_oauth_creds())
+
+
+def get_ga4_property_id():
+    """Return the GA4 property ID."""
+    return _get_secret("GA4_PROPERTY_ID")

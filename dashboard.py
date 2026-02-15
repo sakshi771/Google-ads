@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
-from config import get_google_ads_client, get_customer_id
+from config import get_google_ads_client, get_customer_id, get_ga4_client, get_ga4_property_id
 
 st.set_page_config(page_title="Google Ads Dashboard", page_icon="📊", layout="wide")
 
@@ -191,12 +191,13 @@ try:
     # =============================================
     # TABS
     # =============================================
-    tab_overview, tab_trends, tab_kw_analysis, tab_competitors, tab_opportunities = st.tabs([
+    tab_overview, tab_trends, tab_kw_analysis, tab_competitors, tab_opportunities, tab_landing = st.tabs([
         "🏠 Overview",
         "📈 Daily Trends",
         "🔍 Keyword Analysis",
         "🏆 Competitors",
         "💎 Keyword Opportunities",
+        "🌐 Landing Pages",
     ])
 
     # =============================================
@@ -1122,6 +1123,253 @@ try:
 
         except Exception as opp_error:
             st.error(f"Error loading keyword opportunities: {opp_error}")
+
+    # =============================================
+    # TAB 6: LANDING PAGES (Google Analytics)
+    # =============================================
+    with tab_landing:
+
+        st.markdown("Analyze **landing page performance** from Google Analytics to see which pages drive the best results for your ads.")
+        st.markdown("")
+
+        try:
+            from google.analytics.data_v1beta.types import (
+                RunReportRequest,
+                DateRange,
+                Dimension,
+                Metric,
+                OrderBy,
+            )
+
+            ga4_client = get_ga4_client()
+            ga4_property = get_ga4_property_id()
+
+            if not ga4_property:
+                st.warning("GA4 Property ID not configured. Add GA4_PROPERTY_ID to your .env or Streamlit secrets.")
+            else:
+                # Build date range matching the sidebar selection
+                ga_start = start_date.strftime("%Y-%m-%d")
+                ga_end = end_date.strftime("%Y-%m-%d")
+
+                # Fetch landing page data
+                request = RunReportRequest(
+                    property=f"properties/{ga4_property}",
+                    dimensions=[
+                        Dimension(name="landingPage"),
+                    ],
+                    metrics=[
+                        Metric(name="sessions"),
+                        Metric(name="totalUsers"),
+                        Metric(name="bounceRate"),
+                        Metric(name="averageSessionDuration"),
+                        Metric(name="conversions"),
+                        Metric(name="engagedSessions"),
+                    ],
+                    date_ranges=[DateRange(start_date=ga_start, end_date=ga_end)],
+                    order_bys=[OrderBy(metric=OrderBy.MetricOrderBy(metric_name="sessions"), desc=True)],
+                    limit=100,
+                )
+
+                response = ga4_client.run_report(request)
+
+                # Parse response into dataframe
+                lp_data = []
+                for row in response.rows:
+                    sessions = int(row.dimension_values[0].value != "(not set)")  # skip check
+                    page = row.dimension_values[0].value
+                    sess = int(row.metric_values[0].value)
+                    users = int(row.metric_values[1].value)
+                    bounce = float(row.metric_values[2].value)
+                    avg_duration = float(row.metric_values[3].value)
+                    conversions = int(float(row.metric_values[4].value))
+                    engaged = int(row.metric_values[5].value)
+
+                    if page == "(not set)" or sess == 0:
+                        continue
+
+                    engagement_rate = engaged / sess if sess > 0 else 0
+                    conv_rate = conversions / sess if sess > 0 else 0
+
+                    lp_data.append({
+                        "Landing Page": page,
+                        "Sessions": sess,
+                        "Users": users,
+                        "Bounce Rate": bounce,
+                        "Engagement Rate": engagement_rate,
+                        "Avg Duration (s)": round(avg_duration, 1),
+                        "Conversions": conversions,
+                        "Conv Rate": conv_rate,
+                    })
+
+                df_lp = pd.DataFrame(lp_data)
+
+                if not df_lp.empty:
+                    # Sub-tabs
+                    lp_tab1, lp_tab2, lp_tab3 = st.tabs([
+                        "📊 Performance Overview",
+                        "🚨 Problem Pages",
+                        "💡 Recommendations",
+                    ])
+
+                    with lp_tab1:
+                        # KPIs
+                        lc1, lc2, lc3, lc4 = st.columns(4)
+                        lc1.metric("Landing Pages", len(df_lp))
+                        lc2.metric("Total Sessions", f"{df_lp['Sessions'].sum():,}")
+                        avg_bounce = df_lp["Bounce Rate"].mean()
+                        lc3.metric("Avg Bounce Rate", f"{avg_bounce:.1%}")
+                        total_conv = df_lp["Conversions"].sum()
+                        lc4.metric("Total Conversions", f"{total_conv:,}")
+
+                        st.markdown("")
+
+                        # Full table
+                        st.subheader("All Landing Pages")
+                        display_lp = df_lp.copy()
+                        display_lp["Bounce Rate"] = display_lp["Bounce Rate"].apply(lambda x: f"{x:.1%}")
+                        display_lp["Engagement Rate"] = display_lp["Engagement Rate"].apply(lambda x: f"{x:.1%}")
+                        display_lp["Conv Rate"] = display_lp["Conv Rate"].apply(lambda x: f"{x:.2%}")
+                        display_lp["Avg Duration (s)"] = display_lp["Avg Duration (s)"].apply(lambda x: f"{x:.0f}s")
+                        st.dataframe(display_lp, use_container_width=True, hide_index=True)
+
+                        # Charts
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.subheader("Sessions by Landing Page")
+                            chart_sess = df_lp[["Landing Page", "Sessions"]].head(15).set_index("Landing Page").sort_values("Sessions")
+                            st.bar_chart(chart_sess)
+                        with col2:
+                            st.subheader("Conversions by Landing Page")
+                            chart_conv = df_lp[df_lp["Conversions"] > 0][["Landing Page", "Conversions"]].head(15).set_index("Landing Page").sort_values("Conversions")
+                            if not chart_conv.empty:
+                                st.bar_chart(chart_conv)
+                            else:
+                                st.info("No conversions recorded for landing pages in this period.")
+
+                        # Top performers
+                        converting_pages = df_lp[df_lp["Conversions"] > 0].sort_values("Conv Rate", ascending=False)
+                        if not converting_pages.empty:
+                            st.subheader("Top Converting Pages")
+                            for _, row in converting_pages.head(5).iterrows():
+                                st.markdown(
+                                    f'<div class="good-box">🎯 <strong>{row["Landing Page"]}</strong> — '
+                                    f'{row["Conversions"]} conversions, {row["Conv Rate"]:.2%} conv rate, '
+                                    f'{row["Sessions"]:,} sessions</div>',
+                                    unsafe_allow_html=True,
+                                )
+
+                    with lp_tab2:
+                        st.markdown("Landing pages with **high bounce rates** or **low engagement** that may need improvement.")
+                        st.markdown("")
+
+                        # High bounce rate pages (with meaningful traffic)
+                        min_sessions = max(10, df_lp["Sessions"].median() * 0.2)
+                        problem_pages = df_lp[
+                            (df_lp["Bounce Rate"] > 0.60) &
+                            (df_lp["Sessions"] >= min_sessions)
+                        ].sort_values("Bounce Rate", ascending=False)
+
+                        if not problem_pages.empty:
+                            pc1, pc2 = st.columns(2)
+                            pc1.metric("Problem Pages", len(problem_pages))
+                            wasted_sessions = problem_pages["Sessions"].sum() - problem_pages["Conversions"].sum()
+                            pc2.metric("Sessions on Problem Pages", f"{problem_pages['Sessions'].sum():,}")
+
+                            st.markdown("")
+
+                            for _, row in problem_pages.iterrows():
+                                severity = "bad-box" if row["Bounce Rate"] > 0.75 else "insight-box"
+                                st.markdown(
+                                    f'<div class="{severity}">⚠️ <strong>{row["Landing Page"]}</strong> — '
+                                    f'Bounce rate: {row["Bounce Rate"]:.1%} | '
+                                    f'{row["Sessions"]:,} sessions | '
+                                    f'Avg duration: {row["Avg Duration (s)"]:.0f}s | '
+                                    f'Conversions: {row["Conversions"]}</div>',
+                                    unsafe_allow_html=True,
+                                )
+                        else:
+                            st.markdown('<div class="good-box">✅ No pages with concerning bounce rates. Your landing pages are performing well!</div>', unsafe_allow_html=True)
+
+                        # Low engagement pages
+                        st.markdown("")
+                        low_engagement = df_lp[
+                            (df_lp["Avg Duration (s)"] < 15) &
+                            (df_lp["Sessions"] >= min_sessions)
+                        ].sort_values("Avg Duration (s)")
+
+                        if not low_engagement.empty:
+                            st.subheader("Low Time on Page")
+                            st.caption("Visitors leave these pages very quickly — the content may not match what they expected from the ad.")
+                            for _, row in low_engagement.head(10).iterrows():
+                                st.markdown(
+                                    f'<div class="insight-box">⏱️ <strong>{row["Landing Page"]}</strong> — '
+                                    f'Only {row["Avg Duration (s)"]:.0f}s avg duration | '
+                                    f'{row["Sessions"]:,} sessions</div>',
+                                    unsafe_allow_html=True,
+                                )
+
+                    with lp_tab3:
+                        st.markdown("Actionable recommendations based on your landing page data.")
+                        st.markdown("")
+
+                        tips = []
+
+                        # High traffic, no conversions
+                        high_traffic_no_conv = df_lp[
+                            (df_lp["Sessions"] >= df_lp["Sessions"].median()) &
+                            (df_lp["Conversions"] == 0)
+                        ].sort_values("Sessions", ascending=False)
+                        if not high_traffic_no_conv.empty:
+                            pages = ", ".join(high_traffic_no_conv["Landing Page"].head(3).tolist())
+                            total_sess = high_traffic_no_conv["Sessions"].sum()
+                            tips.append(("bad-box", "🔥", "High Traffic, Zero Conversions",
+                                f"<strong>{len(high_traffic_no_conv)} pages</strong> get good traffic but no conversions: <strong>{pages}</strong>. "
+                                f"That's <strong>{total_sess:,} sessions</strong> going to waste. Check if these pages have clear CTAs and match the ad intent."))
+
+                        # Best converting pages to scale
+                        if not converting_pages.empty:
+                            best = converting_pages.iloc[0]
+                            tips.append(("good-box", "🚀", "Scale Your Best Page",
+                                f"<strong>{best['Landing Page']}</strong> has the best conversion rate at <strong>{best['Conv Rate']:.2%}</strong>. "
+                                f"Consider sending more ad traffic to this page."))
+
+                        # High bounce rate with spend
+                        if not problem_pages.empty:
+                            worst = problem_pages.iloc[0]
+                            tips.append(("bad-box", "🚪", "Fix Your Leakiest Page",
+                                f"<strong>{worst['Landing Page']}</strong> has a <strong>{worst['Bounce Rate']:.0%} bounce rate</strong> "
+                                f"with {worst['Sessions']:,} sessions. Visitors are leaving immediately — check page speed, "
+                                f"mobile responsiveness, and whether the content matches your ad copy."))
+
+                        # Engagement vs conversion mismatch
+                        engaged_no_conv = df_lp[
+                            (df_lp["Engagement Rate"] > 0.60) &
+                            (df_lp["Conversions"] == 0) &
+                            (df_lp["Sessions"] >= min_sessions)
+                        ]
+                        if not engaged_no_conv.empty:
+                            pages = ", ".join(engaged_no_conv["Landing Page"].head(3).tolist())
+                            tips.append(("insight-box", "🤔", "Engaged But Not Converting",
+                                f"<strong>{pages}</strong> — visitors are engaged (spending time on page) but not converting. "
+                                f"The content is interesting but the CTA may be weak. Try making the conversion action more prominent."))
+
+                        if tips:
+                            for box_class, icon, title, description in tips:
+                                st.markdown(f'<div class="{box_class}">{icon} <strong>{title}:</strong> {description}</div>', unsafe_allow_html=True)
+                                st.markdown("")
+                        else:
+                            st.markdown('<div class="good-box">✅ Your landing pages look healthy! No major issues detected.</div>', unsafe_allow_html=True)
+
+                else:
+                    st.info("No landing page data found for this date range.")
+
+        except ImportError:
+            st.warning("Google Analytics library not installed. Run: `pip install google-analytics-data`")
+        except Exception as ga_error:
+            st.error(f"Error loading Google Analytics data: {ga_error}")
+            with st.expander("Error details"):
+                st.code(str(ga_error))
+            st.caption("Make sure your refresh token has Google Analytics permissions. You may need to re-run `python get_refresh_token.py` to re-authorize.")
 
 except Exception as e:
     st.error(f"Error connecting to Google Ads: {e}")

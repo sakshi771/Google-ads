@@ -16,7 +16,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 load_dotenv()
 
-SCOPES = ["https://www.googleapis.com/auth/adwords"]
+SCOPES = [
+    "https://www.googleapis.com/auth/adwords",
+    "https://www.googleapis.com/auth/analytics.readonly",
+]
 
 
 def main():
