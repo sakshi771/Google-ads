@@ -1,12 +1,23 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { setPassword } from '../api';
 
 export default function PasswordGate({ onUnlock }) {
   const [value, setValue] = useState('');
   const [error, setError] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+
+  // On mount: probe /health with no password.
+  // If it returns 200, no password is configured — unlock immediately.
+  useEffect(() => {
+    fetch(`${BASE_URL}/health`)
+      .then(res => { if (res.ok) { setPassword(''); onUnlock(); } })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return null; // brief blank while probing
 
   const handleSubmit = async (e) => {
     e.preventDefault();
