@@ -29,18 +29,31 @@ def _get_oauth_creds():
     )
 
 
-def get_google_ads_client():
+def get_google_ads_client(login_customer_id=None):
     """Create and return an authenticated Google Ads API client."""
-    return GoogleAdsClient(
+    kwargs = dict(
         credentials=_get_oauth_creds(),
         developer_token=_get_secret("GOOGLE_ADS_DEVELOPER_TOKEN"),
         use_proto_plus=True,
     )
+    if login_customer_id:
+        kwargs["login_customer_id"] = str(login_customer_id)
+    return GoogleAdsClient(**kwargs)
 
 
 def get_customer_id():
     """Return the Google Ads customer ID (without dashes)."""
     return _get_secret("GOOGLE_ADS_CUSTOMER_ID")
+
+
+def get_us_customer_id():
+    """Return the US Google Ads customer ID (without dashes)."""
+    return _get_secret("US_GOOGLE_ADS_CUSTOMER_ID")
+
+
+def get_us_login_customer_id():
+    """Return the Manager (MCC) account ID used to access the US client account."""
+    return _get_secret("US_LOGIN_CUSTOMER_ID")
 
 
 def get_ga4_client():
